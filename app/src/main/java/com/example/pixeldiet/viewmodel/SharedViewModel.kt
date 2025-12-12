@@ -11,13 +11,10 @@ import com.example.pixeldiet.data.TrackedAppEntity
 import com.example.pixeldiet.data.UserProfileEntity
 import com.example.pixeldiet.model.*
 import com.example.pixeldiet.repository.UsageRepository
+import com.example.pixeldiet.repository.SyncRepository
 import com.github.mikephil.charting.data.Entry
-import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.firestore
 import com.prolificinteractive.materialcalendarview.CalendarDay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,6 +65,7 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
 
     // ------------------- 앱 사용 데이터 -------------------
     private val repository = UsageRepository
+    private val syncRepository = SyncRepository(application.applicationContext)
     private val _appUsageList = MutableStateFlow<List<AppUsage>>(emptyList())
     val appUsageListFlow: StateFlow<List<AppUsage>> get() = _appUsageList
     val context = getApplication<Application>().applicationContext
@@ -76,7 +74,6 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
     val notificationSettingsFlow: StateFlow<NotificationSettings?> = repository.notificationSettingsFlow
     private val _dailyUsageList = MutableStateFlow<List<DailyUsage>>(emptyList())
 
-    private val userDao = DatabaseProvider.getDatabase(getApplication()).userProfileDao()
 
 
     val totalUsageFlow: StateFlow<Pair<Int, Int>> =
@@ -107,7 +104,7 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
             val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@launch
 
             // Firestore/Room 초기값 불러오기
-            val backupToday = loadBackupToday(uid) // 이제 정상 호출 가능
+            val backupToday = syncRepository.loadBackupToday(uid)
 
             // 실시간 UsageStats
             val realtimeUsage = calculateRealtimeUsage()
@@ -241,31 +238,6 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private suspend fun loadBackupToday(uid: String): Map<String, Int> {
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN)
-        val today = sdf.format(Date())
-
-        val firestore = FirebaseFirestore.getInstance()
-
-        return try {
-            val doc = firestore.collection("users")
-                .document(uid)
-                .collection("dailyRecords")
-                .document(today)
-                .get()
-                .await()
-
-            (doc.get("appUsages") as? Map<*, *>)?.mapNotNull { (k, v) ->
-                val key = k as? String ?: return@mapNotNull null
-                val value = (v as? Number)?.toInt() ?: 0
-                key to value
-            }?.toMap() ?: emptyMap()
-
-        } catch (e: Exception) {
-            Log.e("SharedViewModel", "Failed to load Firestore today usage: $e")
-            emptyMap()
-        }
-    }
 
     fun onGoogleLoginSuccess(idToken: String) {
         viewModelScope.launch {
@@ -383,28 +355,13 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     //==========================날짜 선택시 앱 사용기록 불러오는 메소드=============================
+//==========================날짜 선택시 앱 사용기록 불러오는 메소드=============================
     fun loadDailyDetail(selectedDate: CalendarDay, context: Context) = viewModelScope.launch {
         val uid = getCurrentUserUid() ?: return@launch
+        val dateStr = "%04d-%02d-%02d".format(selectedDate.year, selectedDate.month, selectedDate.day)
+
         try {
-            val firestore = FirebaseFirestore.getInstance()
-            val dateStr = "%04d-%02d-%02d".format(selectedDate.year, selectedDate.month, selectedDate.day)
-
-            val goalSnap = firestore.collection("users").document(uid)
-                .collection("goalHistory").document(dateStr).get().await()
-            val usageSnap = firestore.collection("users").document(uid)
-                .collection("dailyRecords").document(dateStr).get().await()
-
-            val goals = (goalSnap.get("appUsages") as? Map<*, *>)?.mapNotNull { (k, v) ->
-                val key = k as? String ?: return@mapNotNull null
-                val value = (v as? Number)?.toInt() ?: 0
-                key to value
-            }?.toMap() ?: emptyMap()
-
-            val usages = (usageSnap.get("appUsages") as? Map<*, *>)?.mapNotNull { (k, v) ->
-                val key = k as? String ?: return@mapNotNull null
-                val value = (v as? Number)?.toInt() ?: 0
-                key to value
-            }?.toMap() ?: emptyMap()
+            val (goals, usages) = syncRepository.fetchGoalAndUsageForDate(uid, dateStr)
 
             val pm = context.packageManager
             val list = goals.map { (pkg, goalTime) ->
@@ -433,7 +390,7 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
     // ------------------- 데이터 로딩 -------------------
     fun refreshData() = viewModelScope.launch(Dispatchers.IO) {
         val uid = getCurrentUserUid() ?: return@launch
-        val backupToday = loadBackupToday(uid)
+        val backupToday = syncRepository.loadBackupToday(uid)
         val realtimeUsage = calculateRealtimeUsage()
         val trackedList = UsageRepository.getAllTrackedOnce()
 
@@ -511,162 +468,47 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     //===================백그라운드 이동시 일일 사용기록 백업=================
+//===================백그라운드 이동시 일일 사용기록 백업=================
     fun uploadDailyUsageToFirebase() = viewModelScope.launch(Dispatchers.IO) {
         val uid = getCurrentUserUid() ?: return@launch
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN)
-        val today = sdf.format(Date())
-
         val appUsagesMap = appUsageListFlow.value.associate { it.packageName to it.currentUsage }
-
-        val data = mapOf(
-            "date" to today,
-            "appUsages" to appUsagesMap
-        )
-
-        try {
-            Firebase.firestore
-                .collection("users")
-                .document(uid)
-                .collection("dailyRecords")
-                .document(today)
-                .set(data)
-                .addOnSuccessListener {
-                    Log.d("FirebaseBackup", "✅ Daily usage uploaded successfully for $uid on $today")
-                }
-                .addOnFailureListener { e ->
-                    Log.e("FirebaseBackup", "❌ Failed to upload daily usage for $uid on $today", e)
-                }
-        } catch (e: Exception) {
-            Log.e("FirebaseBackup", "❌ Exception while uploading daily usage", e)
-        }
+        syncRepository.uploadDailyUsage(uid, appUsagesMap)
     }
 
 
     // ------------------- 개별 앱 목표 시간 업데이트 -------------------
-    fun uploadDailyGoalToFirebase(newGoals: Map<String, Int>) =
-        viewModelScope.launch(Dispatchers.IO) {
-
-            val uid = getCurrentUserUid() ?: return@launch
-            val today = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN).format(Date())
-
-            val data = mapOf(
-                "date" to today,
-                "appUsages" to newGoals
-            )
-
-            Firebase.firestore
-                .collection("users")
-                .document(uid)
-                .collection("goalHistory")
-                .document(today)
-                .set(data)
-        }
+// ------------------- 개별 앱 목표 시간 업데이트 -------------------
+    fun uploadDailyGoalToFirebase(newGoals: Map<String, Int>) = viewModelScope.launch(Dispatchers.IO) {
+        val uid = getCurrentUserUid() ?: return@launch
+        syncRepository.uploadDailyGoal(uid, newGoals)
+    }
     // ------------------- 친구코드 생성-------------------
 
-    private fun generateFriendCode(length: Int = 8): String {
-        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        return (1..length)
-            .map { chars.random() }
-            .joinToString("")
-    }
 
     //=====================프로필 초기 등록====================================
+//=====================프로필 초기 등록====================================
     fun initUserProfile() = viewModelScope.launch(Dispatchers.IO) {
         val uid = auth.currentUser?.uid ?: return@launch
-
-        // 항상 최신 계정 기준으로 기존 데이터를 가져옴
-        val existing = userDao.getUserProfileOnce(uid)
-
-        if (existing != null) {
-            // Room DB에 이미 존재 → StateFlow만 업데이트
-            _userProfile.value = UserProfile(
-                uid = existing.uid,
-                name = existing.name,
-                imageUrl = existing.imageUrl,
-                friendCode = existing.friendCode
-            )
-        } else {
-            // 이전 계정 남은 데이터 초기화
-            _userProfile.value = null
-
-            // 최초 로그인 시 프로필 생성
-            val profileEntity = UserProfileEntity(
+        try {
+            val entity = syncRepository.initUserProfileIfNeeded(
                 uid = uid,
-                name = auth.currentUser?.displayName ?: "사용자",
-                imageUrl = "default_image_url",
-                friendCode = generateFriendCode()
+                displayName = auth.currentUser?.displayName
             )
 
-            // Room DB 저장
-            userDao.insert(profileEntity)
-
-            // Firestore 상위/서브 컬렉션 저장
-            val firestore = FirebaseFirestore.getInstance()
-            val userDocRef = firestore.collection("users").document(uid)
-            userDocRef.set(mapOf("createdAt" to FieldValue.serverTimestamp()))
-            userDocRef.collection("profile").document("main").set(profileEntity)
-
-            // StateFlow 업데이트
             _userProfile.value = UserProfile(
-                uid = profileEntity.uid,
-                name = profileEntity.name,
-                imageUrl = profileEntity.imageUrl,
-                friendCode = profileEntity.friendCode
+                uid = entity.uid,
+                name = entity.name,
+                imageUrl = entity.imageUrl,
+                friendCode = entity.friendCode
             )
+        } catch (e: Exception) {
+            Log.e("UserProfile", "Failed to init user profile: $e")
         }
     }
     //==================임시 데이터 삽입 코드==================================
+//==================임시 데이터 삽입 코드==================================
     fun insertTestDataForUid(uid: String) = CoroutineScope(Dispatchers.IO).launch {
-        val firestore = Firebase.firestore
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN)
-
-        // 1️⃣ 시작 날짜: 10월 10일
-        val calendar = Calendar.getInstance().apply {
-            set(2025, Calendar.OCTOBER, 10) // 월은 0부터 시작
-        }
-
-        // 2️⃣ 오늘 날짜
-        val today = Calendar.getInstance()
-
-        // 3️⃣ 테스트용 앱 리스트
-        val testApps = listOf(
-            "com.google.android.youtube",      // 유튜브
-            "com.google.android.apps.youtube.music", // 유튜브 뮤직
-            "com.android.chrome"               // 크롬
-        )
-
-        while (calendar <= today) {
-            val dateStr = sdf.format(calendar.time)
-
-            // ------------------ Daily Goal 생성 ------------------
-            val goalData = mapOf(
-                "date" to dateStr,
-                "appUsages" to testApps.associateWith { (30..120).random() } // 분 단위 목표
-            )
-
-            firestore.collection("users")
-                .document(uid)
-                .collection("goalHistory")
-                .document(dateStr)
-                .set(goalData)
-
-            // ------------------ Daily Usage 생성 ------------------
-            val usageData = mapOf(
-                "date" to dateStr,
-                "appUsages" to testApps.associateWith { (0..150).random() } // 분 단위 실제 사용
-            )
-
-            firestore.collection("users")
-                .document(uid)
-                .collection("dailyRecords")
-                .document(dateStr)
-                .set(usageData)
-
-            // 다음 날로 이동
-            calendar.add(Calendar.DAY_OF_YEAR, 1)
-        }
-
-        Log.d("TestData", "✅ 테스트 데이터 삽입 완료 for $uid")
+        syncRepository.insertTestDataForUid(uid)
     }
 
 
