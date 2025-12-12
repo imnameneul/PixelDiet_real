@@ -8,10 +8,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.pixeldiet.data.DatabaseProvider
 import com.example.pixeldiet.data.TrackedAppEntity
-import com.example.pixeldiet.data.UserProfileEntity
 import com.example.pixeldiet.model.*
-import com.example.pixeldiet.repository.UsageRepository
 import com.example.pixeldiet.repository.SyncRepository
+import com.example.pixeldiet.repository.UsageRepository
 import com.github.mikephil.charting.data.Entry
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
@@ -22,7 +21,9 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 data class UserProfile(
     val uid: String,
@@ -30,19 +31,28 @@ data class UserProfile(
     val imageUrl: String,
     val friendCode: String
 )
+
 class SharedViewModel(application: Application) : AndroidViewModel(application) {
+
+    // ------------------- User/Profile -------------------
     private val _userProfile = MutableStateFlow<UserProfile?>(null)
     val userProfile: StateFlow<UserProfile?> = _userProfile
 
-    private val trackedPrefs by lazy { application.getSharedPreferences("tracked_apps_prefs", Context.MODE_PRIVATE) }
-    private val goalPrefs by lazy { application.getSharedPreferences("goal_prefs", Context.MODE_PRIVATE) }
+    private val trackedPrefs by lazy {
+        application.getSharedPreferences("tracked_apps_prefs", Context.MODE_PRIVATE)
+    }
+    private val goalPrefs by lazy {
+        application.getSharedPreferences("goal_prefs", Context.MODE_PRIVATE)
+    }
 
     private val _trackedPackages = MutableStateFlow<Set<String>>(emptySet())
     val trackedPackagesFlow: StateFlow<Set<String>> = _trackedPackages
 
     private val _trackedApps = MutableStateFlow<List<TrackedAppEntity>>(emptyList())
     val trackedAppsFlow: StateFlow<List<TrackedAppEntity>> = _trackedApps
-    private val _isDataReady = MutableStateFlow(true)
+
+    // ✅ 로딩 게이트: 기본은 false (동기화/초기 로딩 끝나면 true)
+    private val _isDataReady = MutableStateFlow(false)
     val isDataReady: StateFlow<Boolean> = _isDataReady
 
     private val _dailyDetailFlow = MutableStateFlow<List<Pair<AppUsage, Int>>>(emptyList())
@@ -50,7 +60,6 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _overallGoalMinutes = MutableStateFlow<Int?>(null)
     val overallGoalFlow: StateFlow<Int?> = _overallGoalMinutes
-
 
     // ------------------- Firebase Auth -------------------
     private val auth = FirebaseAuth.getInstance()
@@ -63,108 +72,63 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         isGoogleUser.value = isGoogleLogin()
     }
 
-    // ------------------- 앱 사용 데이터 -------------------
+    private fun getCurrentUserUid(): String? = auth.currentUser?.uid
+
+    // ------------------- Repositories -------------------
     private val repository = UsageRepository
     private val syncRepository = SyncRepository(application.applicationContext)
+
+    // ------------------- App usage (UI DTO) -------------------
     private val _appUsageList = MutableStateFlow<List<AppUsage>>(emptyList())
     val appUsageListFlow: StateFlow<List<AppUsage>> get() = _appUsageList
-    val context = getApplication<Application>().applicationContext
+
+    private val context = getApplication<Application>().applicationContext
 
     val dailyUsageListFlow: StateFlow<List<DailyUsage>> = repository.dailyUsageListFlow
     val notificationSettingsFlow: StateFlow<NotificationSettings?> = repository.notificationSettingsFlow
-    private val _dailyUsageList = MutableStateFlow<List<DailyUsage>>(emptyList())
 
-
-
+    // ------------------- Total usage (calendar/stat) -------------------
     val totalUsageFlow: StateFlow<Pair<Int, Int>> =
         dailyUsageListFlow.combine(trackedPackagesFlow) { dailies, tracked ->
             val totalUsed = dailies.flatMap { it.appUsages.entries }
                 .filter { tracked.isEmpty() || it.key in tracked }
                 .sumOf { it.value }
-
             totalUsed
         }.combine(_overallGoalMinutes) { used, goal ->
             used to (goal ?: 0)
         }.stateIn(viewModelScope, SharingStarted.Lazily, 0 to (_overallGoalMinutes.value ?: 0))
 
-    // ------------------- 선택된 필터 -------------------
+    // ------------------- Filters -------------------
     private val _selectedFilter = MutableStateFlow<String?>(null)
-    val selectedFilterTextFlow: StateFlow<String> = combine(_selectedFilter, appUsageListFlow) { pkg, apps ->
-        if (pkg == null) "전체" else apps.find { it.packageName == pkg }?.appLabel ?: "전체"
-    }.stateIn(viewModelScope, SharingStarted.Lazily, "전체")
+    val selectedFilterTextFlow: StateFlow<String> =
+        combine(_selectedFilter, appUsageListFlow) { pkg, apps ->
+            if (pkg == null) "전체" else apps.find { it.packageName == pkg }?.appLabel ?: "전체"
+        }.stateIn(viewModelScope, SharingStarted.Lazily, "전체")
 
-    // ------------------- 선택된 달 -------------------
+    // ------------------- Selected month -------------------
     private val _selectedMonth = MutableStateFlow(Calendar.getInstance().get(Calendar.MONTH) + 1)
     val selectedMonthFlow: StateFlow<Int> = _selectedMonth
 
-    // ------------------- 초기화 -------------------
+    // ------------------- Initial load -------------------
+    private var hasSyncedOnce = false
+
     init {
         auth.addAuthStateListener(authListener)
-        viewModelScope.launch(Dispatchers.IO) { // 코루틴 시작
-            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@launch
 
-            // Firestore/Room 초기값 불러오기
-            val backupToday = syncRepository.loadBackupToday(uid)
-
-            // 실시간 UsageStats
-            val realtimeUsage = calculateRealtimeUsage()
-
-            // 모든 패키지 통합
-            val trackedList = UsageRepository.getAllTrackedOnce()
-            _trackedApps.value = trackedList
-            _trackedPackages.value = trackedList.map { it.packageName }.toSet()
-            val allPackages = (trackedList.map { it.packageName } + backupToday.keys + realtimeUsage.keys).distinct()
-
-            // AppUsage 리스트 생성
-            val mergedList = allPackages.map { pkg ->
-                val label = try {
-                    context.packageManager.getApplicationLabel(
-                        context.packageManager.getApplicationInfo(pkg, 0)
-                    ).toString()
-                } catch (e: Exception) { pkg }
-
-                val icon = try {
-                    context.packageManager.getApplicationIcon(pkg)
-                } catch (e: Exception) { null }
-
-                val initialUsage = backupToday[pkg] ?: 0
-                val realtime = realtimeUsage[pkg] ?: 0
-                val goal = trackedList.find { it.packageName == pkg }?.goalTime ?: 0
-
-                AppUsage(pkg, label, icon, initialUsage + realtime, goal, streak = 0)
-            }.sortedBy { it.appLabel.lowercase() }
-
-            // Flow에 emit
-            _appUsageList.value = mergedList
-
-            // 총 목표시간 계산
-            _overallGoalMinutes.value = trackedList.sumOf { it.goalTime }
+        // ✅ init에서는 직접 syncRepository를 부르지 말고, 아래 "내부 함수"를 통해 1회 동기화 + 데이터 구성까지 끝낸다.
+        viewModelScope.launch(Dispatchers.IO) {
+            val uid = getCurrentUserUid()
+            if (uid == null) {
+                // 로그인 전 상태라면 UI가 영원히 로딩에 갇히지 않게 풀어줌
+                _isDataReady.value = true
+                return@launch
+            }
+            syncFromFirestoreInternal(uid, force = false)
         }
     }
-
-    // ------------------- SharedPreferences 로드 -------------------
 
     fun markDataReady() {
         _isDataReady.value = true
-    }
-    private fun loadOverallGoal() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // 1️⃣ DB에서 앱별 목표시간 불러오기
-                val appsFromDb = UsageRepository.getAllTrackedOnce()
-                _trackedApps.value = appsFromDb
-                _trackedPackages.value = appsFromDb.map { it.packageName }.toSet()
-
-                // 2️⃣ 총 목표시간 계산
-                val totalGoal = appsFromDb.sumOf { it.goalTime }
-                _overallGoalMinutes.value = totalGoal
-
-                // 3️⃣ 필요하다면 SharedPreferences에도 저장 (선택)
-                goalPrefs.edit().putInt("overall_goal_minutes", totalGoal).apply()
-            } catch (e: Exception) {
-                Log.e("SharedViewModel", "Failed to load overall goal: $e")
-            }
-        }
     }
 
     // ------------------- SharedPreferences / Room 업데이트 -------------------
@@ -180,7 +144,6 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         }.apply()
     }
 
-
     // ------------------- Firebase 인증 관련 -------------------
     private fun getUserName(): String {
         val user = auth.currentUser
@@ -193,51 +156,47 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         val user = auth.currentUser
         return user != null && !user.isAnonymous
     }
-    private fun getCurrentUserUid(): String? = auth.currentUser?.uid
 
     fun logout() {
         viewModelScope.launch(Dispatchers.IO) {
             val db = DatabaseProvider.getDatabase(getApplication())
-            // 1️⃣ Room DB 초기화
             db.userProfileDao().clearAll()
             db.trackedAppDao().clearAll()
             db.dailyUsageDao().clearAll()
             db.groupDao().clearAll()
             db.friendDao().clearAll()
 
-            // 2️⃣ SharedPreferences 초기화 (선택)
             trackedPrefs.edit().clear().apply()
             goalPrefs.edit().clear().apply()
 
-            // 3️⃣ Firebase 로그아웃
             auth.signOut()
 
-            // 4️⃣ ViewModel StateFlow 초기화
             _userProfile.value = null
             _trackedApps.value = emptyList()
             _trackedPackages.value = emptySet()
             _overallGoalMinutes.value = null
+
+            // 로그아웃 직후에는 다시 로딩상태로 돌려도 되지만,
+            // 현재 화면 네비게이션에서 Login으로 이동할 것이므로 true로 풀어둠
+            _isDataReady.value = true
+            hasSyncedOnce = false
         }
     }
+
     fun loadDailyAppUsage(uid: String, date: String) {
         viewModelScope.launch {
-            // UID와 날짜 확인
             Log.d("AppUsageList", "UID: $uid, Date: $date")
 
             val usageMap = repository.getDailyAppUsage(uid, date)
-
-            // DB에서 가져온 Map 확인
             Log.d("AppUsageList", "UsageMap from DB: $usageMap")
 
             val usageList = usageMap.map { (pkg, mins) ->
                 AppUsage(pkg, appLabel = pkg, icon = null, currentUsage = mins, goalTime = 0, streak = 0)
             }
             _appUsageList.value = usageList
-
             Log.d("AppUsageList", "Loaded: $usageList")
         }
     }
-
 
     fun onGoogleLoginSuccess(idToken: String) {
         viewModelScope.launch {
@@ -245,14 +204,19 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
                 val credential = GoogleAuthProvider.getCredential(idToken, null)
                 auth.signInWithCredential(credential).await()
 
-                // 로그인 후 이전 StateFlow 초기화
                 _userProfile.value = null
                 _trackedApps.value = emptyList()
                 _trackedPackages.value = emptySet()
                 _overallGoalMinutes.value = null
 
-                // 새 계정 정보 불러오기
                 initUserProfile()
+
+                // ✅ 계정 바뀌었으면 동기화 1회 다시 수행
+                val uid = getCurrentUserUid() ?: return@launch
+                viewModelScope.launch(Dispatchers.IO) {
+                    hasSyncedOnce = false
+                    syncFromFirestoreInternal(uid, force = true)
+                }
             } catch (e: Exception) {
                 Log.e("GoogleLogin", "Firebase sign in failed: $e")
             }
@@ -344,18 +308,18 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
             Entry(dayOfMonth, usage.toFloat())
         }
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
     private fun calculateRealtimeUsage(): Map<String, Int> {
         val usageStatsManager =
             context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val end = System.currentTimeMillis()
-        val start = end - 24 * 60 * 60 * 1000  // 오늘 24시간
+        val start = end - 24 * 60 * 60 * 1000
         val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, start, end)
             ?: emptyList()
         return stats.associate { it.packageName to (it.totalTimeInForeground / 1000 / 60).toInt() }
     }
 
-    //==========================날짜 선택시 앱 사용기록 불러오는 메소드=============================
-//==========================날짜 선택시 앱 사용기록 불러오는 메소드=============================
+    // ========================== 날짜 선택시 앱 사용기록 불러오기 =============================
     fun loadDailyDetail(selectedDate: CalendarDay, context: Context) = viewModelScope.launch {
         val uid = getCurrentUserUid() ?: return@launch
         val dateStr = "%04d-%02d-%02d".format(selectedDate.year, selectedDate.month, selectedDate.day)
@@ -387,9 +351,8 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // ------------------- 데이터 로딩 -------------------
-    fun refreshData() = viewModelScope.launch(Dispatchers.IO) {
-        val uid = getCurrentUserUid() ?: return@launch
+    // ------------------- 데이터 로딩(내부) -------------------
+    private suspend fun refreshDataInternal(uid: String) {
         val backupToday = syncRepository.loadBackupToday(uid)
         val realtimeUsage = calculateRealtimeUsage()
         val trackedList = UsageRepository.getAllTrackedOnce()
@@ -397,13 +360,23 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         _trackedApps.value = trackedList
         _trackedPackages.value = trackedList.map { it.packageName }.toSet()
 
-        val allPackages = (trackedList.map { it.packageName } + realtimeUsage.keys).distinct()
+        // ✅ backupToday 키도 포함해서 목록을 만든다 (백업만 있는 앱도 표시)
+        val allPackages = (trackedList.map { it.packageName } + backupToday.keys + realtimeUsage.keys).distinct()
 
         val mergedList = allPackages.map { pkg ->
-            val label = try { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString() } catch (e: Exception) { pkg }
+            val label = try {
+                context.packageManager.getApplicationLabel(
+                    context.packageManager.getApplicationInfo(pkg, 0)
+                ).toString()
+            } catch (e: Exception) { pkg }
+
             val icon = try { context.packageManager.getApplicationIcon(pkg) } catch (e: Exception) { null }
+
             val initialUsage = backupToday[pkg] ?: 0
-            val usage = realtimeUsage[pkg] ?: initialUsage   // ✅ 수정
+            val realtime = realtimeUsage[pkg]
+            // ✅ 중복 합산 방지: realtime이 있으면 realtime, 없으면 backupToday
+            val usage = realtime ?: initialUsage
+
             val goal = trackedList.find { it.packageName == pkg }?.goalTime ?: 0
             AppUsage(pkg, label, icon, usage, goal, streak = 0)
         }.sortedBy { it.appLabel.lowercase() }
@@ -412,7 +385,11 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         _overallGoalMinutes.value = trackedList.sumOf { it.goalTime }
     }
 
-
+    // ------------------- 데이터 로딩(외부 호출) -------------------
+    fun refreshData() = viewModelScope.launch(Dispatchers.IO) {
+        val uid = getCurrentUserUid() ?: return@launch
+        refreshDataInternal(uid)
+    }
 
     fun saveNotificationSettings(settings: NotificationSettings) = viewModelScope.launch {
         repository.updateNotificationSettings(settings)
@@ -423,70 +400,85 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         auth.removeAuthStateListener(authListener)
     }
 
-    // ------------------- 트래킹 앱 업데이트 -------------------UsageRepository.getAllTrackedOnce()
+    // ------------------- Firestore -> Room 동기화 -------------------
+    private suspend fun syncFromFirestoreInternal(uid: String, force: Boolean) {
+        if (!force && hasSyncedOnce) {
+            // 이미 1회 동기화/초기 로딩 끝났으면, 이후에는 데이터만 새로 고치기
+            refreshDataInternal(uid)
+            _isDataReady.value = true
+            return
+        }
 
-    fun saveTrackedAppsWithGoals(selectedAppsWithGoals: Map<String, Int>) = viewModelScope.launch(Dispatchers.IO) {
+        _isDataReady.value = false
         try {
-            // 1️⃣ 기존 DB에 저장된 모든 앱 가져오기
-            val currentTracked = UsageRepository.getAllTrackedOnce()
+            syncRepository.syncFromFirestore(uid)
+            hasSyncedOnce = true
 
-            // 2️⃣ 삭제할 앱 = 기존 DB에 있는데 선택 목록에 없는 앱
-            val toDelete = currentTracked.filter { it.packageName !in selectedAppsWithGoals.keys }
-            toDelete.forEach { UsageRepository.deleteTrackedApp(it.packageName) }
-
-            // 3️⃣ 추가/업데이트할 앱 = 선택된 앱 + 목표시간
-            val toSave = selectedAppsWithGoals.map { (pkg, goal) ->
-                TrackedAppEntity(packageName = pkg, goalTime = goal)
-            }
-
-            // 4️⃣ 저장 (업데이트/삽입)
-            UsageRepository.updateTrackedApps(toSave)
-            _trackedPackages.value = selectedAppsWithGoals.keys
-
-            // 5️⃣ Repository의 currentGoals 갱신
-            repository.updateGoalTimes(selectedAppsWithGoals)
-
-            // 6️⃣ 최신 데이터 불러오기 & Flow 직접 emit
-            val latestTracked = UsageRepository.getAllTrackedOnce()
-            _trackedApps.value = latestTracked.map { tracked ->
-                val goal = selectedAppsWithGoals[tracked.packageName] ?: tracked.goalTime
-                tracked.copy(goalTime = goal)
-            }
-
-            // 🔹 전체 목표시간 항상 앱별 합계로 갱신
-            val totalGoal = _trackedApps.value.sumOf { it.goalTime }
-            _overallGoalMinutes.value = totalGoal
-
-            // 7️⃣ 로그
-            _trackedApps.value.forEach {
-                Log.d("DBCheck", "Saved Package: ${it.packageName}, GoalTime: ${it.goalTime}")
-            }
-
+            // 동기화 끝났으니 화면 데이터 재계산
+            refreshDataInternal(uid)
         } catch (e: Exception) {
-            Log.e("SharedViewModel", "Failed to save tracked apps with goals: $e")
+            Log.e("SharedViewModel", "syncFromFirestore failed: $e")
+        } finally {
+            _isDataReady.value = true
         }
     }
 
-    //===================백그라운드 이동시 일일 사용기록 백업=================
-//===================백그라운드 이동시 일일 사용기록 백업=================
+    /** 수동 동기화(설정화면 버튼 등에서 호출) */
+    fun syncFromFirestore() = viewModelScope.launch(Dispatchers.IO) {
+        val uid = getCurrentUserUid() ?: return@launch
+        syncFromFirestoreInternal(uid, force = true)
+    }
+
+    // ------------------- 트래킹 앱 업데이트 -------------------
+    fun saveTrackedAppsWithGoals(selectedAppsWithGoals: Map<String, Int>) =
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val currentTracked = UsageRepository.getAllTrackedOnce()
+                val toDelete = currentTracked.filter { it.packageName !in selectedAppsWithGoals.keys }
+                toDelete.forEach { UsageRepository.deleteTrackedApp(it.packageName) }
+
+                val toSave = selectedAppsWithGoals.map { (pkg, goal) ->
+                    TrackedAppEntity(packageName = pkg, goalTime = goal)
+                }
+
+                UsageRepository.updateTrackedApps(toSave)
+                _trackedPackages.value = selectedAppsWithGoals.keys
+
+                repository.updateGoalTimes(selectedAppsWithGoals)
+
+                val latestTracked = UsageRepository.getAllTrackedOnce()
+                _trackedApps.value = latestTracked.map { tracked ->
+                    val goal = selectedAppsWithGoals[tracked.packageName] ?: tracked.goalTime
+                    tracked.copy(goalTime = goal)
+                }
+
+                val totalGoal = _trackedApps.value.sumOf { it.goalTime }
+                _overallGoalMinutes.value = totalGoal
+
+                _trackedApps.value.forEach {
+                    Log.d("DBCheck", "Saved Package: ${it.packageName}, GoalTime: ${it.goalTime}")
+                }
+
+                // 저장 후 UI도 갱신
+                val uid = getCurrentUserUid()
+                if (uid != null) refreshDataInternal(uid)
+            } catch (e: Exception) {
+                Log.e("SharedViewModel", "Failed to save tracked apps with goals: $e")
+            }
+        }
+
+    // =================== 백그라운드 이동시 일일 사용기록 백업 ==================
     fun uploadDailyUsageToFirebase() = viewModelScope.launch(Dispatchers.IO) {
         val uid = getCurrentUserUid() ?: return@launch
         val appUsagesMap = appUsageListFlow.value.associate { it.packageName to it.currentUsage }
         syncRepository.uploadDailyUsage(uid, appUsagesMap)
     }
 
-
-    // ------------------- 개별 앱 목표 시간 업데이트 -------------------
-// ------------------- 개별 앱 목표 시간 업데이트 -------------------
     fun uploadDailyGoalToFirebase(newGoals: Map<String, Int>) = viewModelScope.launch(Dispatchers.IO) {
         val uid = getCurrentUserUid() ?: return@launch
         syncRepository.uploadDailyGoal(uid, newGoals)
     }
-    // ------------------- 친구코드 생성-------------------
 
-
-    //=====================프로필 초기 등록====================================
-//=====================프로필 초기 등록====================================
     fun initUserProfile() = viewModelScope.launch(Dispatchers.IO) {
         val uid = auth.currentUser?.uid ?: return@launch
         try {
@@ -505,11 +497,8 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
             Log.e("UserProfile", "Failed to init user profile: $e")
         }
     }
-    //==================임시 데이터 삽입 코드==================================
-//==================임시 데이터 삽입 코드==================================
+
     fun insertTestDataForUid(uid: String) = CoroutineScope(Dispatchers.IO).launch {
         syncRepository.insertTestDataForUid(uid)
     }
-
-
 }

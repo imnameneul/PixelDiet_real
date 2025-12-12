@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.example.pixeldiet.data.DatabaseProvider
 import com.example.pixeldiet.data.UserProfileEntity
+import com.example.pixeldiet.backup.BackupManager
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
@@ -167,6 +168,20 @@ class SyncRepository(private val appContext: Context) {
         }
 
         return profileEntity
+    }
+
+    private val backupManager by lazy {
+        BackupManager(
+            userDao = db.userProfileDao(),
+            trackedAppDao = db.trackedAppDao(),
+            dailyUsageDao = db.dailyUsageDao(),
+            groupDao = db.groupDao(),
+            friendDao = db.friendDao()
+        )
+    }
+
+    suspend fun syncFromFirestore(uid: String) {
+        backupManager.syncFromFirestore(uid)  // viewModel 없이 호출 가능해야 함
     }
 
     // ------------------- Debug/Test data -------------------

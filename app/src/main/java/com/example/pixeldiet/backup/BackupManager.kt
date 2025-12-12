@@ -1,8 +1,6 @@
 package com.example.pixeldiet.backup
 
-// BackupManager.kt
 import android.util.Log
-//import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.pixeldiet.data.DailyUsageDao
 import com.example.pixeldiet.data.DailyUsageEntity
 import com.example.pixeldiet.data.FriendDao
@@ -14,7 +12,6 @@ import com.example.pixeldiet.data.UserProfileEntity
 import com.example.pixeldiet.friend.FriendRecord
 import com.example.pixeldiet.friend.group.GroupRecord
 import com.example.pixeldiet.repository.UsageRepository
-import com.example.pixeldiet.viewmodel.SharedViewModel
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
@@ -22,8 +19,16 @@ import com.google.firebase.firestore.Query
 import com.google.gson.Gson
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
+/**
+ * Firestore -> Room 복원(동기화) 담당.
+ *
+ * ✅ 리팩터링 포인트:
+ * - ViewModel을 인자로 받지 않는다.
+ * - UI 갱신(markDataReady/refreshData 등)은 SharedViewModel(호출자)에서 처리한다.
+ */
 class BackupManager(
     private val userDao: UserProfileDao,
     private val trackedAppDao: TrackedAppDao,
@@ -31,7 +36,6 @@ class BackupManager(
     private val groupDao: GroupDao,
     private val friendDao: FriendDao
 ) {
-
     private val firestore = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
 
@@ -44,7 +48,7 @@ class BackupManager(
                 auth.signInAnonymously().await()
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("BackupManager", "initUser failed: $e")
         }
     }
 
@@ -53,12 +57,19 @@ class BackupManager(
             val credential = GoogleAuthProvider.getCredential(idToken, null)
             auth.signInWithCredential(credential).await()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("BackupManager", "signInWithGoogle failed: $e")
         }
     }
 
-    suspend fun syncFromFirestore(viewModel: SharedViewModel) {
-        val uid = currentUserId()
+    /**
+     * ✅ uid 버전 동기화 함수 (ViewModel 의존성 제거)
+     *
+     * - caller(SharedViewModel/SyncRepository)에서 uid를 전달해 호출한다.
+     * - 여기서는 Firestore에서 내려받아 Room에 저장까지만 수행한다.
+     */
+    suspend fun syncFromFirestore(uid: String) {
+        if (uid.isBlank()) return
+
         Log.d("BackupManager", "===== Sync started for UID: $uid =====")
 
         // 1️⃣ Profile 동기화
@@ -108,12 +119,13 @@ class BackupManager(
                 }
             }
 
+            // ⚠️ 현재 구조 유지(중간단계): UsageRepository 내부 상태 갱신
             UsageRepository.updateTrackedAppsFromBackup(trackedAppsFromFirestore)
         } catch (e: Exception) {
             Log.e("BackupManager", "[TrackedApps] Failed to sync", e)
         }
 
-        // 3️⃣ DailyUsage 동기화
+        // 3️⃣ DailyUsage 동기화 (오늘만)
         try {
             val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
             val dailySnap = firestore.collection("users")
@@ -198,7 +210,6 @@ class BackupManager(
         }
 
         Log.d("BackupManager", "===== Sync finished for UID: $uid =====")
-        viewModel.markDataReady()
+        // ✅ 여기서 markDataReady() 같은 UI 호출은 하지 않음!
     }
-
 }

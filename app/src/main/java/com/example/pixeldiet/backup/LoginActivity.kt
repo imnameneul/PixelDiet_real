@@ -8,19 +8,17 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-//import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.pixeldiet.MainActivity
 import com.example.pixeldiet.R
 import com.example.pixeldiet.data.AppDatabase
-import com.example.pixeldiet.viewmodel.SharedViewModel
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
 
 class LoginActivity : AppCompatActivity() {
 
-    private lateinit var viewModel: SharedViewModel
     private lateinit var googleSignInClient: GoogleSignInClient
     private lateinit var backupManager: BackupManager
 
@@ -31,17 +29,27 @@ class LoginActivity : AppCompatActivity() {
             try {
                 val account = task.getResult(Exception::class.java)
                 val idToken = account?.idToken
-                val uid = account?.id // 여기서 구글 계정 ID를 UID로 사용
-                if (idToken != null && uid != null) {
+
+                if (idToken != null) {
                     lifecycleScope.launch {
                         try {
+                            // 1) Firebase 로그인
                             backupManager.signInWithGoogle(idToken)
-                            // ✅ UID SharedPreferences에 저장
+
+                            // 2) Firebase uid 저장 (account.id 쓰지 말고 이걸 쓰는 게 맞음)
+                            val firebaseUid = FirebaseAuth.getInstance().currentUser?.uid
+                            if (firebaseUid == null) {
+                                Toast.makeText(this@LoginActivity, "구글 로그인 실패(UID 없음)", Toast.LENGTH_SHORT).show()
+                                return@launch
+                            }
+
                             getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
                                 .edit()
-                                .putString("uid", uid)
+                                .putString("uid", firebaseUid)
                                 .apply()
-                            backupManager.syncFromFirestore(viewModel)
+
+                            // ❌ 여기서 동기화(syncFromFirestore) 호출 제거
+                            //    -> SharedViewModel이 Main에서 직접 syncFromFirestore() 호출하게 리팩터링
 
                             Toast.makeText(this@LoginActivity, "구글 로그인 완료", Toast.LENGTH_SHORT).show()
                             goToMain()
@@ -50,6 +58,8 @@ class LoginActivity : AppCompatActivity() {
                             Toast.makeText(this@LoginActivity, "구글 로그인 실패", Toast.LENGTH_SHORT).show()
                         }
                     }
+                } else {
+                    Toast.makeText(this@LoginActivity, "구글 로그인 실패(idToken 없음)", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -60,6 +70,7 @@ class LoginActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_login)
+
         val db = AppDatabase.getInstance(applicationContext)
         backupManager = BackupManager(
             userDao = db.userProfileDao(),
@@ -79,16 +90,24 @@ class LoginActivity : AppCompatActivity() {
             .build()
         googleSignInClient = GoogleSignIn.getClient(this, gso)
 
-        // 게스트 로그인
+        // 게스트(익명) 로그인
         btnGuest.setOnClickListener {
             lifecycleScope.launch {
                 try {
                     backupManager.initUser() // 익명 로그인 생성
-                    // ✅ UID SharedPreferences에 저장 (게스트용)
+
+                    // Firebase 익명 uid 저장
+                    val firebaseUid = FirebaseAuth.getInstance().currentUser?.uid
+                    if (firebaseUid == null) {
+                        Toast.makeText(this@LoginActivity, "게스트 로그인 실패(UID 없음)", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+
                     getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
                         .edit()
-                        .putString("uid", "guest_${System.currentTimeMillis()}")
+                        .putString("uid", firebaseUid)
                         .apply()
+
                     Toast.makeText(this@LoginActivity, "게스트 로그인 완료", Toast.LENGTH_SHORT).show()
                     goToMain()
                 } catch (e: Exception) {
