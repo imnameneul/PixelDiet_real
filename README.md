@@ -1,4 +1,5 @@
 📢 1차 수정 사항 (구글 재로그인 시 로그인 실패 뜨는 문제 등 해결)
+
 ⭐backup/
 - BackupManager.kt : syncFromFirestore() 수정
 - LoginActivity.kt : backupManager.syncFromFirestore를 제거하고 SharedViewModel이 직접 syncFromFirestore() 호출하는 구조로 변경
