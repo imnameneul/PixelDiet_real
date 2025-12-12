@@ -1,0 +1,17 @@
+package com.example.pixeldiet.friend
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import com.example.pixeldiet.ui.friend.FriendViewModel
+
+class FriendViewModelFactory(
+    private val repository: FriendRepository
+) : ViewModelProvider.Factory {
+
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(FriendViewModel::class.java)) {
+            return FriendViewModel(repository) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
+    }
+}

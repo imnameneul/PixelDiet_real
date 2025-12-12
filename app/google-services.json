@@ -1,0 +1,100 @@
+{
+  "project_info": {
+    "project_number": "600905167527",
+    "project_id": "timer-ad9b0",
+    "storage_bucket": "timer-ad9b0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:600905167527:android:a342a921ced8c38e26a182",
+        "android_client_info": {
+          "package_name": "com.example.myapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "600905167527-1kjllr55742d50l35cli8b2nsvan726o.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.myapp",
+            "certificate_hash": "4cafef48ef3a1322663129baa282459b0de727d8"
+          }
+        },
+        {
+          "client_id": "600905167527-8clrh5ga1qsvh8nfndsunt0cob9otla0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.myapp",
+            "certificate_hash": "f3935aa5a2374ec2f9f300d6d08989399dcb77d7"
+          }
+        },
+        {
+          "client_id": "600905167527-ftgk9kj2fvg0o083qg2bhccbue2ssm13.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.myapp",
+            "certificate_hash": "cb8e9b27ee4a1f0b99ad81fd61269a709b73e874"
+          }
+        },
+        {
+          "client_id": "600905167527-n14jpa0nktev65nloekrs2a8nkiuef20.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.myapp",
+            "certificate_hash": "bbe1b9f3fb6f04cb62515e3f5fa2bb4292a70b3e"
+          }
+        },
+        {
+          "client_id": "600905167527-i5sdno1jsf110p6a60laef48v9qorbkh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAt8jLMnXVopVgQXxPzQtXorIAknyfMSWc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "600905167527-i5sdno1jsf110p6a60laef48v9qorbkh.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:600905167527:android:a841faccd59f45a926a182",
+        "android_client_info": {
+          "package_name": "com.example.pixeldiet"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "600905167527-i5sdno1jsf110p6a60laef48v9qorbkh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAt8jLMnXVopVgQXxPzQtXorIAknyfMSWc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "600905167527-i5sdno1jsf110p6a60laef48v9qorbkh.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
