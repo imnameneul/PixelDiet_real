@@ -25,10 +25,16 @@
 1. 그룹 생성 시 Firestore 쓰기들을 전부 await()로 기다리게 수정 → members/{uid} 문서가 “확실히 만들어진 다음” 다음 로직이 돌게 함.
 2. 어디서든 members 문서는 update() 대신 set(merge)(업서트)로만 갱신 → 문서가 없어도 자동 생성되니까 NOT_FOUND 크래시 방지.
 
----
+## 📢 3차 수정 사항 : 앱 사용시간 겹치는 문제 (SharedViewModel에서 앱 사용시간으로 'Firestore(today) + UsageStats(realtime)' 기반으로 계산하는거 없애고  'UsageStats(realtime)'기반 사용시간으로 계산하게 수정(UsageRepository))
 
-- 📢 (예정) 3차 수정 사항 : 앱 사용시간 겹치는 문제 (SharedViewModel에서 앱 사용시간으로 'Firestore(today) + UsageStats(realtime)' 기반으로 계산하는거 없애고  'UsageStats(realtime)'기반 사용시간으로 계산하게 수정(UsageRepository))
-  
+⭐SyncRepository.kt 수정
+⭐SharedViewModel.kt 수정
+⭐UsageCheckWorkger.kt 수정
+
+- 주요 수정: SharedViewModel.kt 에 있던 firebase에 오늘 사용시간을 가져와 앱 사용시간에 합산하던 계산 삭제하고 UsageRepositry.kt(수정X)에 있던 계산 로직 그대로 가져다 씀.
+- 백그라운드로 넘어갈때 firebase에 업로드하는건 동일, 대신 오늘 사용시간은 안 가져옴(함수는 남아있음)
+
+  ---
 - 📢 (예정) 4차 수정 사항 (메인화면에서 총 사용시간 뜨게 하기, 스트릭 아이콘 추가, 프로그레스바 색깔 변경, 사용시간 순으로 앱 카드 정렬(옵션: 사용시간 순, 목표 달성 순 정렬)
 
 - 📢 (예정) 5차 수정 사항 (총 목표시간도 설정 가능하게 수정(현재는 총 목표시간을 합산으로만 계산)(firestore, room에 총 목표시간 저장 필드 추가 고려 중))
