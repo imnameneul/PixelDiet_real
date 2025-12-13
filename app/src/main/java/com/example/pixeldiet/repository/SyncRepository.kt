@@ -31,6 +31,7 @@ class SyncRepository(private val appContext: Context) {
     // ------------------- Firestore READ -------------------
 
     /** Firestore users/{uid}/dailyRecords/{today} 의 appUsages(Map<pkg, minutes>)를 가져온다. */
+    // 사용 ❌
     suspend fun loadBackupToday(uid: String): Map<String, Int> {
         val today = todayString()
         return try {

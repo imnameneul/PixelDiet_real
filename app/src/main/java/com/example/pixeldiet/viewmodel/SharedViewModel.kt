@@ -309,6 +309,7 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         }
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    // 사용 ❌
     private fun calculateRealtimeUsage(): Map<String, Int> {
         val usageStatsManager =
             context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
@@ -353,36 +354,17 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
 
     // ------------------- 데이터 로딩(내부) -------------------
     private suspend fun refreshDataInternal(uid: String) {
-        val backupToday = syncRepository.loadBackupToday(uid)
-        val realtimeUsage = calculateRealtimeUsage()
         val trackedList = UsageRepository.getAllTrackedOnce()
 
         _trackedApps.value = trackedList
         _trackedPackages.value = trackedList.map { it.packageName }.toSet()
-
-        // ✅ backupToday 키도 포함해서 목록을 만든다 (백업만 있는 앱도 표시)
-        val allPackages = (trackedList.map { it.packageName } + backupToday.keys + realtimeUsage.keys).distinct()
-
-        val mergedList = allPackages.map { pkg ->
-            val label = try {
-                context.packageManager.getApplicationLabel(
-                    context.packageManager.getApplicationInfo(pkg, 0)
-                ).toString()
-            } catch (e: Exception) { pkg }
-
-            val icon = try { context.packageManager.getApplicationIcon(pkg) } catch (e: Exception) { null }
-
-            val initialUsage = backupToday[pkg] ?: 0
-            val realtime = realtimeUsage[pkg]
-            // ✅ 중복 합산 방지: realtime이 있으면 realtime, 없으면 backupToday
-            val usage = realtime ?: initialUsage
-
-            val goal = trackedList.find { it.packageName == pkg }?.goalTime ?: 0
-            AppUsage(pkg, label, icon, usage, goal, streak = 0)
-        }.sortedBy { it.appLabel.lowercase() }
-
-        _appUsageList.value = mergedList
         _overallGoalMinutes.value = trackedList.sumOf { it.goalTime }
+
+        // ✅ SSOT: 오늘 사용량 계산/Room저장/Firestore업로드는 Repository가 전담
+        repository.loadRealData(context, uid)
+
+        // ✅ UI는 Repository 결과를 그대로 씀 (너 UI가 appUsageListFlow만 보게 유지하려면 이 라인)
+        _appUsageList.value = repository.appUsageListFlow.value
     }
 
     // ------------------- 데이터 로딩(외부 호출) -------------------
@@ -470,8 +452,13 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
     // =================== 백그라운드 이동시 일일 사용기록 백업 ==================
     fun uploadDailyUsageToFirebase() = viewModelScope.launch(Dispatchers.IO) {
         val uid = getCurrentUserUid() ?: return@launch
-        val appUsagesMap = appUsageListFlow.value.associate { it.packageName to it.currentUsage }
-        syncRepository.uploadDailyUsage(uid, appUsagesMap)
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN).format(Date())
+
+        // ✅ Room(SSOT)에서 오늘 사용량을 읽음
+        val appUsagesMap = repository.getDailyAppUsage(uid, today)
+
+        // ✅ 그 값을 Firestore에 업로드
+        syncRepository.uploadDailyUsage(uid, appUsagesMap, today)
     }
 
     fun uploadDailyGoalToFirebase(newGoals: Map<String, Int>) = viewModelScope.launch(Dispatchers.IO) {

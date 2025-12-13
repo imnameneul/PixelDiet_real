@@ -28,10 +28,11 @@ class UsageCheckWorker(
 
             // 2. 최신 데이터 가져오기
             val appList = repository.appUsageListFlow.value
-            val settings = prefs.loadNotificationSettings()
+            val settings = prefs.loadNotificationSettings() ?: NotificationSettings()
 
-            if (appList.isNullOrEmpty()) {
-                return Result.failure()
+            if (appList.isEmpty()) {
+                // 데이터가 아직 준비되지 않았으면 이번 주기는 조용히 종료
+                return Result.success()
             }
 
             // 3. 추적 중인 앱 목록(패키지명) 로드
@@ -57,7 +58,7 @@ class UsageCheckWorker(
             Result.success()
 
         } catch (e: Exception) {
-            Result.failure()
+            Result.retry()
         }
     }
 
