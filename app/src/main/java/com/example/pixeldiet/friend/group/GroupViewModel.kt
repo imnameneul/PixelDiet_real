@@ -18,6 +18,7 @@ import com.example.pixeldiet.friend.FriendRecord
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.auth.User
 import kotlinx.coroutines.CoroutineScope
@@ -145,13 +146,18 @@ class GroupViewModel(private val repository: GroupRepository, private val usageD
 
     // =============================================================
     fun createGroup(name: String, appId: String) = viewModelScope.launch {
-        viewModelScope.launch {
-            repository.createGroup(name, appId) // suspend fun
-            // 방장 멤버 정보가 Firestore에 저장된 후 호출
-            _selectedGroup.value?.let { group ->
-                _selectedApp.value = appId
-                startAppMonitoring() // 바로 감시 시작
+        try {
+            repository.createGroup(name, appId) // suspend fun (Firestore/Room 완료까지 기다리는 버전이어야 안정적)
+
+            // 그룹 목록/선택 그룹은 snapshot/flow로 반영될 수 있으니, 여기서는 선택앱만 먼저 세팅
+            _selectedApp.value = appId
+
+            // 선택 그룹이 준비된 경우에만 감시 시작
+            _selectedGroup.value?.let {
+                startAppMonitoring()
             }
+        } catch (e: Exception) {
+            Log.e("GroupViewModel", "createGroup failed", e)
         }
     }
 
@@ -288,16 +294,23 @@ class GroupViewModel(private val repository: GroupRepository, private val usageD
                         member.usage += 1
                         Log.d("GroupViewModel", "Incrementing usage for ${member.name}: ${member.usage}분")
                         // Firestore 업데이트
-                        firestore.collection("groups")
-                            .document(groupId)
-                            .collection("members")
-                            .document(member.uid)
-                            .update(
-                                mapOf(
-                                    "usage" to member.usage,
-                                    "updatedAt" to now // 1분 단위로만 갱신
+                        // ✅ 문서가 없을 수도 있으니 update 대신 set(merge)로 업서트 (NOT_FOUND 크래시 방지)
+                        try {
+                            firestore.collection("groups")
+                                .document(groupId)
+                                .collection("members")
+                                .document(member.uid)
+                                .set(
+                                    mapOf(
+                                        "usage" to member.usage,
+                                        "updatedAt" to now // 1분 단위로만 갱신
+                                    ),
+                                    SetOptions.merge()
                                 )
-                            )
+                                .await()
+                        } catch (e: Exception) {
+                            Log.e("GroupViewModel", "Failed to upsert usage for member=${member.uid}", e)
+                        }
                         member
                     } else member
                 }
@@ -475,11 +488,22 @@ class AppUsageMonitor(
 
     private suspend fun updateRunningStatus(isRunning: Boolean) {
         val uid = currentUserId ?: return
-        firestore.collection("groups")
-            .document(groupId)
-            .collection("members")
-            .document(uid)
-            .update("isRunning", isRunning)
-            .await()
+        try {
+            firestore.collection("groups")
+                .document(groupId)
+                .collection("members")
+                .document(uid)
+                // ✅ 문서가 없으면 생성, 있으면 업데이트 (NOT_FOUND 방지)
+                .set(
+                    mapOf(
+                        "isRunning" to isRunning,
+                        "updatedAt" to System.currentTimeMillis()
+                    ),
+                    SetOptions.merge()
+                )
+                .await()
+        } catch (e: Exception) {
+            Log.e("AppUsageMonitor", "Failed to upsert isRunning for $groupId/$uid", e)
+        }
     }
 }
