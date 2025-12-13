@@ -22,5 +22,8 @@
 
 ---
 
+## 📢 3차 수정 사항 (SharedViewModel에서 firestore에서 오늘 사용시간 가져와서 Usagestats랑 합산해서 계산하던거 없애고 Repository에서 계산한 걸로 적용되게 수정)
+수정 예정...
+
 ## ⚠️ 유의 사항
 - 앱 실행하자마자 꺼지면 Appdatabase.kt에서 version 값 올리면 되는 것 같습니다.
