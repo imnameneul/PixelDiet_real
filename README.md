@@ -22,7 +22,7 @@
 
 ---
 
-- 📢 (예정) 3차 수정 사항 (SharedViewModel에서 firestore에서 오늘 사용시간 가져와서 Usagestats랑 합산해서 계산하던거 없애고 모든 UI에 Repository에서 계산한 걸로 적용되게 수정)
+- 📢 (예정) 3차 수정 사항 : 앱 사용시간 겹치는 문제 (SharedViewModel에서 firestore에서 오늘 사용시간 가져와서 Usagestats랑 합산해서 계산하던거 없애고 모든 UI에 Repository에서 계산한 걸로 적용되게 수정)
 
 - 📢 (예정) 4차 수정 사항 (메인화면에서 총 사용시간 뜨게 하기, 스트릭 아이콘 추가)
 
