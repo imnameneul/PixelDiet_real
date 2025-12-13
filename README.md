@@ -23,4 +23,4 @@
 ---
 
 ## ⚠️ 유의 사항
-- 앱 실행하자마자 꺼지면 Appdatabase.kt에서 version 값 올리면 되는 것 같습니다...
+- 앱 실행하자마자 꺼지면 Appdatabase.kt에서 version 값 올리면 되는 것 같습니다.
