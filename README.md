@@ -1,4 +1,4 @@
-## 📢 1차 수정 사항 (구글 재로그인 시 로그인 실패 뜨는 문제 등 해결)
+## 📢 1차 수정 사항 (구글 재로그인 시 로그인 실패 뜨는 문제 등 있어서 해결)
 
 ⭐backup/
 - BackupManager.kt : syncFromFirestore() 수정
