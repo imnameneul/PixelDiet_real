@@ -15,6 +15,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,8 +41,8 @@ data class InstalledApp(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppSelectionScreen(
-    viewModel: SharedViewModel,            // ✅ 기본값 제거
-    onDone: () -> Unit                     // ✅ 기본값 제거
+    viewModel: SharedViewModel,
+    onDone: () -> Unit
 ) {
     val context = LocalContext.current
     val pm = context.packageManager
@@ -47,10 +50,11 @@ fun AppSelectionScreen(
     // 현재 추적 중인 패키지들
     val trackedPackages by viewModel.trackedPackagesFlow.collectAsState()
     val trackedApps by viewModel.trackedAppsFlow.collectAsState()
-    // 설치된 런처 앱 목록 로드 (앱 아이콘/라벨 포함)
 
+    // ⭐ 검색어 상태 추가
+    var searchQuery by remember { mutableStateOf("") }
 
-    // 설치된 앱 로드
+    // 설치된 앱 로드 (한 번만 로드)
     val installedApps by remember {
         mutableStateOf(
             pm.getInstalledApplications(PackageManager.GET_META_DATA)
@@ -65,12 +69,20 @@ fun AppSelectionScreen(
         )
     }
 
+    // ⭐ 검색어에 따라 필터링된 목록 생성
+    val filteredApps = if (searchQuery.isEmpty()) {
+        installedApps
+    } else {
+        installedApps.filter {
+            it.label.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
     // 선택 상태: 처음에는 기존 추적앱으로 초기화
     var selectedPackages by remember { mutableStateOf(mutableSetOf<String>()) }
     LaunchedEffect(trackedPackages) {
         selectedPackages = trackedPackages.toMutableSet()
     }
-
 
     Scaffold(
         topBar = {
@@ -106,21 +118,46 @@ fun AppSelectionScreen(
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
+            // 안내 문구
             Text(
                 text = "휴대폰에 설치된 앱 중에서\n사용시간을 추적할 앱을 선택해 주세요.",
                 modifier = Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodyMedium
             )
 
+            // ⭐ 검색창 (Search Bar) 추가
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                placeholder = { Text("앱 이름 검색...") },
+                leadingIcon = {
+                    Icon(imageVector = Icons.Default.Search, contentDescription = "Search")
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(imageVector = Icons.Default.Close, contentDescription = "Clear")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium
+            )
+
+            // 앱 목록 그리드 (필터링된 목록 사용)
             LazyVerticalGrid(
-                columns = GridCells.Fixed(5),       // ⭐ 5x5 그리드
+                columns = GridCells.Fixed(5),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(installedApps, key = { it.packageName }) { app ->
+                // ⭐ filteredApps 사용
+                items(filteredApps, key = { it.packageName }) { app ->
                     val isSelected = app.packageName in selectedPackages
 
                     Column(
@@ -174,7 +211,9 @@ fun AppSelectionScreen(
                         Text(
                             text = app.label,
                             fontSize = MaterialTheme.typography.labelSmall.fontSize,
-                            maxLines = 1
+                            maxLines = 1,
+                            // 긴 이름은 말줄임표 처리
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                 }

@@ -115,7 +115,11 @@ fun AppUsageCard(appUsage: AppUsage) {
                 )
 
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(text = formatTime(appUsage.goalTime), fontSize = 14.sp)
+                Text(
+                    text = formatTime(appUsage.goalTime),
+                    fontSize = 14.sp,
+                    color = ui.color   // ✅ 프로그레스바 색과 동일
+                )
             }
         }
     }

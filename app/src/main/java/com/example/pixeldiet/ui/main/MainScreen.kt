@@ -3,7 +3,6 @@ package com.example.pixeldiet.ui.main
 import android.util.Log
 import android.widget.Toast
 import com.example.pixeldiet.model.AppUsage
-import com.example.pixeldiet.ui.common.progressUi
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -153,16 +152,12 @@ fun MainScreen(
                 modifier = Modifier.fillMaxWidth()
             ) { Text("목표 시간 설정") }
         }
-        // 시각화 거품 뷰
+        // 시각화 거품 뷰 + 전체 사용시간
         item {
-            VisualNotification(
-                sortedDisplayAppList
+            VisualSummaryCard(
+                appList = sortedDisplayAppList,
+                totalUsage = totalUsage.first
             )
-        }
-
-        // 전체 사용 시간/목표 프로그레스
-        item {
-            TotalProgress(totalUsage.first, totalUsage.second)
         }
 
         item {
@@ -205,229 +200,90 @@ fun MainScreen(
 @Composable
 fun VisualNotification(appList: List<AppUsage>) {
     val appsWithUsage = appList.filter { it.currentUsage > 0 }
+    if (appsWithUsage.isEmpty()) return
+
+    Card(elevation = CardDefaults.cardElevation(2.dp)) {
+        VisualNotificationContent(appList)
+    }
+}
+
+@Composable
+private fun VisualNotificationContent(appList: List<AppUsage>) {
+    val appsWithUsage = appList.filter { it.currentUsage > 0 }
     val maxUsage = appsWithUsage.maxOfOrNull { it.currentUsage }?.toFloat() ?: 1f
 
     if (appsWithUsage.isEmpty()) return
 
-    Card(elevation = CardDefaults.cardElevation(2.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .horizontalScroll(rememberScrollState())
-                .padding(24.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            appsWithUsage.forEach { app ->
-                val size = (40 + (app.currentUsage / maxUsage) * 100).dp
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .horizontalScroll(rememberScrollState())
+            .padding(24.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        appsWithUsage.forEach { app ->
+            val size = (40 + (app.currentUsage / maxUsage) * 100).dp
 
-                if (app.icon != null) {
-                    // 앱 아이콘을 거품 크기만큼 표시
-                    AsyncImage(
-                        model = app.icon,
-                        contentDescription = app.appLabel,
-                        modifier = Modifier.size(size)
-                    )
-                } else {
-                    // 아이콘 없으면 단색 박스 폴백
-                    Box(
-                        modifier = Modifier
-                            .size(size)
-                            .background(Color.Gray)
-                    )
-                }
+            if (app.icon != null) {
+                AsyncImage(
+                    model = app.icon,
+                    contentDescription = app.appLabel,
+                    modifier = Modifier.size(size)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(size)
+                        .background(Color.Gray)
+                )
             }
         }
     }
 }
 
 @Composable
-fun TotalProgress(totalUsage: Int, totalGoal: Int) {
+private fun VisualSummaryCard(appList: List<AppUsage>, totalUsage: Int) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("총 사용시간", fontSize = 14.sp, color = Color.Gray)
-                Row {
-                    Text(
-                        formatTime(totalUsage),
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(end = 16.dp)
-                    )
-                    Text(
-                        "목표 ${formatTime(totalGoal)}",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            val ui = progressUi(totalUsage, totalGoal)
-
-            LinearProgressIndicator(
-                progress = { ui.progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(12.dp),
-                color = ui.color,
-                trackColor = Color.LightGray
-            )
+        Column {
+            VisualNotificationContent(appList)
+            Divider()
+            TotalProgressContent(totalUsage)
         }
     }
 }
 
 @Composable
-fun GoalSettingDialog(
-    appList: List<AppUsage>,
-    overallGoal: Int?,                          // 🔹 전체 목표시간 (null이면 없음)
-    onDismiss: () -> Unit,
-    onSave: (Map<String, Int>, Int?) -> Unit   // 🔹 (앱별 목표, 전체 목표)
-) {
-    // app.packageName -> (시간, 분) 문자열 상태
-    val goalStates = remember(appList) {
-        mutableStateMapOf<String, Pair<String, String>>().apply {
-            appList.forEach { app ->
-                val currentMinutes = app.goalTime
-                val hours = (currentMinutes / 60).toString()
-                val minutes = (currentMinutes % 60).toString()
-                put(app.packageName, hours to minutes)
-            }
-        }
+fun TotalProgress(totalUsage: Int) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        TotalProgressContent(totalUsage)
     }
+}
 
-    // 🔹 전체 목표시간 초기값 (분 단위)
-    val initialTotalMinutes: Int? = overallGoal
-        ?: appList.sumOf { it.goalTime }.takeIf { it > 0 }
-
-    // 🔹 초기값을 시/분으로 분해
-    val initialHours = initialTotalMinutes?.div(60) ?: 0
-    val initialMinutes = initialTotalMinutes?.rem(60) ?: 0
-
-    var totalGoalHoursText by remember(appList, overallGoal) {
-        mutableStateOf(
-            if (initialTotalMinutes != null) initialHours.toString() else ""
+@Composable
+private fun TotalProgressContent(totalUsage: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("총 사용시간", fontSize = 14.sp, color = Color.Gray)
+        Text(
+            text = formatTime(totalUsage),
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
         )
     }
-
-    var totalGoalMinutesText by remember(appList, overallGoal) {
-        mutableStateOf(
-            if (initialTotalMinutes != null) initialMinutes.toString() else ""
-        )
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("목표 시간 설정") },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(appList, key = { it.packageName }) { app ->
-                    val pkg = app.packageName
-                    val (hours, minutes) = goalStates[pkg] ?: ("0" to "0")
-
-                    Text(
-                        app.appLabel,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = hours,
-                            onValueChange = { new ->
-                                goalStates[pkg] = new.filter { it.isDigit() } to minutes
-                            },
-                            label = { Text("시간") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = minutes,
-                            onValueChange = { new ->
-                                goalStates[pkg] = hours to new.filter { it.isDigit() }
-                            },
-                            label = { Text("분") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-
-                // 🔹 전체 목표시간 입력 블록 추가
-                item {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        "전체 목표시간 (선택사항)",
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = totalGoalHoursText,
-                            onValueChange = { new ->
-                                totalGoalHoursText = new.filter { it.isDigit() }
-                            },
-                            label = { Text("시간") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = totalGoalMinutesText,
-                            onValueChange = { new ->
-                                totalGoalMinutesText = new.filter { it.isDigit() }
-                            },
-                            label = { Text("분") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Text(
-                        text = "둘 다 비워두면 앱별 목표시간 합계를 전체 목표로 사용합니다.",
-                        fontSize = 12.sp,
-                        color = Color.Gray,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = {
-                val newGoals: Map<String, Int> = goalStates.mapValues { (_, hm) ->
-                    val h = hm.first.toIntOrNull() ?: 0
-                    val m = hm.second.toIntOrNull() ?: 0
-                    h * 60 + m
-                }
-
-                // 🔹 전체 목표시간 계산
-                val h = totalGoalHoursText.toIntOrNull()
-                val m = totalGoalMinutesText.toIntOrNull()
-
-                val totalGoalMinutes: Int? = if (h == null && m == null) {
-                    // 둘 다 비어 있으면 → null (SharedViewModel에서 자동 합산)
-                    null
-                } else {
-                    (h ?: 0) * 60 + (m ?: 0)
-                }
-
-                onSave(newGoals, totalGoalMinutes)
-            }) {
-                Text("저장")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("취소")
-            }
-        }
-    )
 }
 
 private fun formatTime(minutes: Int): String {

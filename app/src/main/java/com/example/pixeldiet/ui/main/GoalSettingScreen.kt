@@ -32,8 +32,9 @@ fun GoalSettingScreen(
 
     // ✅ 추적 중인 앱만 뽑아서 목표 설정 리스트로 사용
     val goalApps = remember(allApps, trackedPackages) {
-        allApps
-            .filter { trackedPackages.isEmpty() || it.packageName in trackedPackages }
+        if (trackedPackages.isEmpty()) emptyList()
+        else allApps
+            .filter { it.packageName in trackedPackages }
             .sortedBy { it.appLabel.lowercase() }
     }
 
@@ -64,6 +65,7 @@ fun GoalSettingScreen(
         bottomBar = {
             Surface(tonalElevation = 2.dp) {
                 Column(Modifier.padding(16.dp)) {
+
                     saveError?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(8.dp))
@@ -106,7 +108,7 @@ fun GoalSettingScreen(
                     .padding(innerPadding),
                 contentAlignment = Alignment.Center
             ) {
-                Text("목표 시간을 설정할 앱이 없어")
+                Text("목표 시간을 설정할 앱이 없습니다.")
             }
         } else {
             LazyColumn(

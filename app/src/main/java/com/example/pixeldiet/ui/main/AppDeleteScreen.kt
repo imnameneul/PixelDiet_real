@@ -62,7 +62,7 @@ fun AppDeleteScreen(
                     .padding(innerPadding),
                 contentAlignment = Alignment.Center
             ) {
-                Text("삭제할 추적 앱이 없어")
+                Text("삭제할 추적 앱이 없습니다.")
             }
         } else {
             LazyColumn(
@@ -89,8 +89,8 @@ fun AppDeleteScreen(
         if (target != null) {
             AlertDialog(
                 onDismissRequest = { pendingDelete = null },
-                title = { Text("삭제할까?") },
-                text = { Text("‘${target.appLabel}’을(를) 추적 앱에서 삭제할게.") },
+                title = { Text("삭제하시겠습니까?") },
+                text = { Text("‘${target.appLabel}’을(를) 추적 앱에서 삭제합니다.") },
                 confirmButton = {
                     TextButton(
                         onClick = {
