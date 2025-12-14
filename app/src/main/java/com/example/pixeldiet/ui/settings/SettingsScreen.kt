@@ -81,7 +81,6 @@ fun SettingsScreen(viewModel: SharedViewModel = viewModel()) {
     val isGoogleUser by viewModel.isGoogleUser.collectAsState()
     val settings by viewModel.notificationSettingsFlow.collectAsState(initial = null)
     var showIndividualSettings by remember { mutableStateOf(false) }
-    var showTotalSettings by remember { mutableStateOf(false) }
 
     // UID 가져오기 (익명 로그인 대비)
     val uid = FirebaseAuth.getInstance().currentUser?.uid ?: "anonymous"
@@ -162,7 +161,7 @@ fun SettingsScreen(viewModel: SharedViewModel = viewModel()) {
             }
 
         }
-        item { Text("알림 설정", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+        item { Text("설정", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
 
         // 알람 버튼
         item {
@@ -173,13 +172,6 @@ fun SettingsScreen(viewModel: SharedViewModel = viewModel()) {
                         icon = Icons.Default.Notifications,
                         iconTint = Color(0xFFE1306C),
                         onClick = { showIndividualSettings = true }
-                    )
-                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                    SettingsItem(
-                        title = "전체시간 알람",
-                        icon = Icons.Default.Notifications,
-                        iconTint = Color(0xFFFFC107),
-                        onClick = { showTotalSettings = true }
                     )
                 }
             }
@@ -242,25 +234,6 @@ fun SettingsScreen(viewModel: SharedViewModel = viewModel()) {
         )
     }
 
-    // 전체 알람 설정 다이얼로그
-    if (showTotalSettings) {
-        NotificationSettingDialog(
-            title = "전체 시간 알람",
-            currentSettings = settings ?: NotificationSettings(),
-            getCheckedItems = { s -> booleanArrayOf(s.total50, s.total70, s.total100) },
-            onDismiss = { showTotalSettings = false },
-            onSave = { newSettings -> viewModel.saveNotificationSettings(newSettings); showTotalSettings = false },
-            onShowExample = { /* TODO */ },
-            updateLogic = { current, index, isChecked ->
-                when (index) {
-                    0 -> current.total50 = isChecked
-                    1 -> current.total70 = isChecked
-                    2 -> current.total100 = isChecked
-                }
-            },
-            onIntervalSelected = { newSettings, interval -> newSettings.repeatIntervalMinutes = interval }
-        )
-    }
 }
 
 @Composable

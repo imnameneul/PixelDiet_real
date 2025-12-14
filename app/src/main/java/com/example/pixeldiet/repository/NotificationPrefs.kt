@@ -28,9 +28,6 @@ class NotificationPrefs(context: Context) {
             putBoolean("ind_50", settings.individualApp50)
             putBoolean("ind_70", settings.individualApp70)
             putBoolean("ind_100", settings.individualApp100)
-            putBoolean("total_50", settings.total50)
-            putBoolean("total_70", settings.total70)
-            putBoolean("total_100", settings.total100)
             putInt("repeat_interval", settings.repeatIntervalMinutes)
             apply()
         }
@@ -41,9 +38,6 @@ class NotificationPrefs(context: Context) {
             individualApp50 = prefs.getBoolean("ind_50", true),
             individualApp70 = prefs.getBoolean("ind_70", true),
             individualApp100 = prefs.getBoolean("ind_100", true),
-            total50 = prefs.getBoolean("total_50", true),
-            total70 = prefs.getBoolean("total_70", true),
-            total100 = prefs.getBoolean("total_100", true),
             repeatIntervalMinutes = prefs.getInt("repeat_interval", 5) // 기본값 5분
         )
     }
@@ -51,7 +45,7 @@ class NotificationPrefs(context: Context) {
     // --- "하루 한 번" 알림 날짜 기록 ---
 
     /**
-     * @param type "ind_50", "ind_70", "total_50", "total_70"
+     * @param type "ind_50", "ind_70"
      * @return 오늘 이 타입의 알림을 보낸 적이 있으면 true
      */
     fun hasSentToday(type: String): Boolean {
@@ -60,7 +54,7 @@ class NotificationPrefs(context: Context) {
     }
 
     /**
-     * @param type "ind_50", "ind_70", "total_50", "total_70"
+     * @param type "ind_50", "ind_70"
      */
     fun recordSentToday(type: String) {
         // "ind_50" 키에 오늘 날짜("2025-11-17")를 저장
@@ -70,7 +64,7 @@ class NotificationPrefs(context: Context) {
     // --- "반복 알림" 시간 기록 ---
 
     /**
-     * @param type "ind_100", "total_100"
+     * @param type "ind_100"
      * @return 마지막 100% 알림 보낸 시간 (타임스탬프)
      */
     fun getLastRepeatSentTime(type: String): Long {
@@ -78,7 +72,7 @@ class NotificationPrefs(context: Context) {
     }
 
     /**
-     * @param type "ind_100", "total_100"
+     * @param type "ind_100"
      */
     fun recordRepeatSentTime(type: String) {
         prefs.edit().putLong(type, System.currentTimeMillis()).apply()

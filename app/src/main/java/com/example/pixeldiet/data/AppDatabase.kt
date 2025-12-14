@@ -13,7 +13,7 @@ import com.example.pixeldiet.friend.FriendRecord
 
 @Database(
     entities = [UserProfileEntity::class, GroupRecord::class, FriendRecord::class, FriendRequest::class,  DailyUsageEntity::class, AppUsageEntity::class,TrackedAppEntity::class, NotificationSettingsEntity::class],
-    version = 4
+    version = 5
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {

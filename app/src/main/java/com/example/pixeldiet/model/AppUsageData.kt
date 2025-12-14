@@ -34,9 +34,6 @@ data class NotificationSettings(
     var individualApp50: Boolean = true,
     var individualApp70: Boolean = true,
     var individualApp100: Boolean = true,
-    var total50: Boolean = true,
-    var total70: Boolean = true,
-    var total100: Boolean = true,
     // 100% 초과 시 반복 알림 간격 (기본값 5분)
     var repeatIntervalMinutes: Int = 5
 )

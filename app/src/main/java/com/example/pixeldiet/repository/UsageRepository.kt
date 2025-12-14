@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -41,6 +42,51 @@ object UsageRepository {
 
     private val currentGoals = mutableMapOf<String, Int>()
 
+    // ---------------- Firestore 업로드 throttle ----------------
+    private const val UPLOAD_PREFS = "usage_upload_prefs"
+    private const val KEY_LAST_UPLOAD_AT_PREFIX = "last_upload_at_"      // + uid
+    private const val KEY_LAST_UPLOAD_TOTAL_PREFIX = "last_upload_total_" // + uid
+
+    // 업로드 최소 간격(추천: 5분~15분 사이)
+    private const val UPLOAD_MIN_INTERVAL_MS = 5 * 60 * 1000L
+
+    // 사용량 변화가 거의 없으면 업로드 생략(분 단위)
+    private const val UPLOAD_MIN_DELTA_MINUTES = 2
+
+    private fun getUploadPrefs(context: Context) =
+        context.getSharedPreferences(UPLOAD_PREFS, Context.MODE_PRIVATE)
+
+    private fun shouldUploadThrottled(
+        context: Context,
+        uid: String,
+        totalMinutesNow: Int,
+        force: Boolean
+    ): Boolean {
+        if (force) return true
+
+        val prefs = getUploadPrefs(context)
+        val lastAt = prefs.getLong(KEY_LAST_UPLOAD_AT_PREFIX + uid, 0L)
+        val lastTotal = prefs.getInt(KEY_LAST_UPLOAD_TOTAL_PREFIX + uid, -1)
+
+        // 첫 업로드는 1회 허용
+        if (lastAt == 0L || lastTotal < 0) return true
+
+        val now = System.currentTimeMillis()
+        val elapsed = now - lastAt
+        val delta = kotlin.math.abs(totalMinutesNow - lastTotal)
+
+        // 최소 간격 만족 + 변화량 충분할 때만 업로드
+        return elapsed >= UPLOAD_MIN_INTERVAL_MS && delta >= UPLOAD_MIN_DELTA_MINUTES
+    }
+
+    private fun markUploaded(context: Context, uid: String, totalMinutesNow: Int) {
+        val prefs = getUploadPrefs(context)
+        prefs.edit()
+            .putLong(KEY_LAST_UPLOAD_AT_PREFIX + uid, System.currentTimeMillis())
+            .putInt(KEY_LAST_UPLOAD_TOTAL_PREFIX + uid, totalMinutesNow)
+            .apply()
+    }
+
     // ---------------- 초기화 ----------------
     fun init(context: Context) {
         if (!::db.isInitialized) {
@@ -49,7 +95,7 @@ object UsageRepository {
 
         // Coroutine 안에서 suspend 함수 호출
         CoroutineScope(Dispatchers.IO).launch {
-            getAllTrackedOnce()
+            _trackedApps.value = db.trackedAppDao().getAllTrackedAppsOnce()
             loadNotificationSettings()
         }
     }
@@ -78,8 +124,11 @@ object UsageRepository {
             _trackedApps.value = apps
         }
     }
+
     suspend fun getAllTrackedOnce(): List<TrackedAppEntity> {
-        return db.trackedAppDao().getAllTrackedAppsOnce()
+        val list = db.trackedAppDao().getAllTrackedAppsOnce()
+        _trackedApps.value = list
+        return list
     }
 
     // ---------------- 목표 시간 업데이트 ----------------
@@ -101,7 +150,7 @@ object UsageRepository {
     }
 
     // ---------------- 실제 사용 데이터 로딩 ----------------
-    suspend fun loadRealData(context: Context, uid: String) {
+    suspend fun loadRealData(context: Context, uid: String, forceUpload: Boolean = false) {
         if (!::db.isInitialized) {
             db = DatabaseProvider.getDatabase(context)
         }
@@ -139,7 +188,15 @@ object UsageRepository {
             db.dailyUsageDao().insertOrUpdate(dailyEntity)
         }
 
-        uploadDailyUsageToFirebase(uid, todayUsageMap)
+        // ✅ 업로드는 throttle 적용 (서비스가 1분마다 돌더라도 Firestore는 과도하게 안 찍힘)
+        val totalMinutesNow = todayUsageMap.values.sum()
+
+        if (shouldUploadThrottled(context, uid, totalMinutesNow, force = forceUpload)) {
+            uploadDailyUsageToFirebase(uid, todayUsageMap)
+            markUploaded(context, uid, totalMinutesNow)
+        } else {
+            Log.d("FirebaseBackup", "⏭️ upload skipped(throttled): total=$totalMinutesNow")
+        }
     }
 
     // ---------------- 알림 설정 ----------------
@@ -148,13 +205,8 @@ object UsageRepository {
         _notificationSettings.value = entity.toDto()
     }
     suspend fun uploadDailyUsageToFirebase(uid: String, appUsageMap: Map<String, Int>) {
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN)
-        val today = sdf.format(Date())
-
-        val data = mapOf(
-            "date" to today,
-            "appUsages" to appUsageMap
-        )
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN).format(Date())
+        val data = mapOf("date" to today, "appUsages" to appUsageMap)
 
         try {
             Firebase.firestore
@@ -163,16 +215,14 @@ object UsageRepository {
                 .collection("dailyRecords")
                 .document(today)
                 .set(data)
-                .addOnSuccessListener {
-                    Log.d("FirebaseBackup", "✅ Daily usage uploaded successfully for $uid on $today")
-                }
-                .addOnFailureListener { e ->
-                    Log.e("FirebaseBackup", "❌ Failed to upload daily usage for $uid on $today", e)
-                }
+                .await()
+
+            Log.d("FirebaseBackup", "✅ Daily usage uploaded: $uid / $today")
         } catch (e: Exception) {
-            Log.e("FirebaseBackup", "❌ Exception while uploading daily usage", e)
+            Log.e("FirebaseBackup", "❌ upload failed: $uid / $today", e)
         }
     }
+
     suspend fun updateNotificationSettings(settings: NotificationSettings) = CoroutineScope(Dispatchers.IO).launch {
         val entity = NotificationSettingsEntity.fromDto(settings)
         db.notificationSettingsDao().insertOrUpdate(entity)
@@ -242,16 +292,17 @@ private fun calculatePreciseUsage(context: Context): Map<String, Int> {
 
 // ---------------- NotificationSettings 변환 ----------------
 fun NotificationSettingsEntity.toDto(): NotificationSettings = NotificationSettings(
-    individualApp50, individualApp70, individualApp100,
-    total50, total70, total100, repeatIntervalMinutes
+    individualApp50 = individualApp50,
+    individualApp70 = individualApp70,
+    individualApp100 = individualApp100,
+    repeatIntervalMinutes = repeatIntervalMinutes
 )
 
-fun NotificationSettingsEntity.Companion.fromDto(dto: NotificationSettings): NotificationSettingsEntity = NotificationSettingsEntity(
-    individualApp50 = dto.individualApp50,
-    individualApp70 = dto.individualApp70,
-    individualApp100 = dto.individualApp100,
-    total50 = dto.total50,
-    total70 = dto.total70,
-    total100 = dto.total100,
-    repeatIntervalMinutes = dto.repeatIntervalMinutes
-)
+fun NotificationSettingsEntity.Companion.fromDto(dto: NotificationSettings): NotificationSettingsEntity =
+    NotificationSettingsEntity(
+        individualApp50 = dto.individualApp50,
+        individualApp70 = dto.individualApp70,
+        individualApp100 = dto.individualApp100,
+        repeatIntervalMinutes = dto.repeatIntervalMinutes
+    )
+

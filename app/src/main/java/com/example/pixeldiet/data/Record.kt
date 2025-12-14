@@ -64,9 +64,6 @@ data class NotificationSettingsEntity(
     val individualApp50: Boolean = true,
     val individualApp70: Boolean = true,
     val individualApp100: Boolean = true,
-    val total50: Boolean = true,
-    val total70: Boolean = true,
-    val total100: Boolean = true,
     val repeatIntervalMinutes: Int = 5
 ) {
     // ✅ 엔티티 -> DTO
@@ -75,9 +72,6 @@ data class NotificationSettingsEntity(
             individualApp50 = individualApp50,
             individualApp70 = individualApp70,
             individualApp100 = individualApp100,
-            total50 = total50,
-            total70 = total70,
-            total100 = total100,
             repeatIntervalMinutes = repeatIntervalMinutes
         )
     }
@@ -89,9 +83,6 @@ data class NotificationSettingsEntity(
                 individualApp50 = dto.individualApp50,
                 individualApp70 = dto.individualApp70,
                 individualApp100 = dto.individualApp100,
-                total50 = dto.total50,
-                total70 = dto.total70,
-                total100 = dto.total100,
                 repeatIntervalMinutes = dto.repeatIntervalMinutes
             )
         }
