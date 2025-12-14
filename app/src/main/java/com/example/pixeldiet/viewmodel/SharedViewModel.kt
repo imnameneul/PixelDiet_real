@@ -11,6 +11,7 @@ import com.example.pixeldiet.data.TrackedAppEntity
 import com.example.pixeldiet.model.*
 import com.example.pixeldiet.repository.SyncRepository
 import com.example.pixeldiet.repository.UsageRepository
+import com.example.pixeldiet.data.GoalHistoryEntity
 import com.github.mikephil.charting.data.Entry
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
@@ -20,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.channels.awaitClose
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -112,6 +114,29 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
     private val context = getApplication<Application>().applicationContext
 
     val dailyUsageListFlow: StateFlow<List<DailyUsage>> = repository.dailyUsageListFlow
+
+    private val goalHistoryListFlow: StateFlow<List<GoalHistoryEntity>> =
+        callbackFlow {
+            val auth = FirebaseAuth.getInstance()
+            val listener = FirebaseAuth.AuthStateListener {
+                trySend(it.currentUser?.uid)
+            }
+            auth.addAuthStateListener(listener)
+            trySend(auth.currentUser?.uid)
+            awaitClose { auth.removeAuthStateListener(listener) }
+        }.flatMapLatest { uid ->
+            if (uid == null) flowOf(emptyList())
+            else {
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN)
+                val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -120) }
+                val from = sdf.format(cal.time)
+                val to = sdf.format(Date())
+
+                val db = DatabaseProvider.getDatabase(getApplication())
+                db.goalHistoryDao().getGoalsInRange(uid, from, to)
+            }
+        }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
     val notificationSettingsFlow: StateFlow<NotificationSettings?> = repository.notificationSettingsFlow
 
     // ------------------- Total usage (calendar/stat) -------------------
@@ -271,23 +296,40 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
     }.stateIn(viewModelScope, SharingStarted.Lazily, 0)
 
     val calendarDecoratorDataFlow: StateFlow<List<CalendarDecoratorData>> = combine(
-        dailyUsageListFlow, appUsageListFlow, _selectedFilter, trackedPackagesFlow, _overallGoalMinutes
-    ) { dailies, apps, filterPkg, tracked, overallGoal ->
+        dailyUsageListFlow, goalHistoryListFlow, _selectedFilter
+    ) { dailies, goalsHistory, filterPkg ->
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN)
+
+        // dateStr -> goalMap
+        val goalByDate: Map<String, Map<String, Int>> =
+            goalsHistory.associate { it.date to it.toGoalMap() }
+
         val decorators = mutableListOf<CalendarDecoratorData>()
+
         for (daily in dailies) {
             val date = sdf.parse(daily.date) ?: continue
             val cal = Calendar.getInstance().apply { time = date }
-            val calDay = CalendarDay.from(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
+            val calDay = CalendarDay.from(
+                cal.get(Calendar.YEAR),
+                cal.get(Calendar.MONTH) + 1,
+                cal.get(Calendar.DAY_OF_MONTH)
+            )
+
+            val dayGoals = goalByDate[daily.date].orEmpty()
+            if (dayGoals.isEmpty()) continue // 그 날 목표 기록 없으면 색 표시 안 함
 
             val (usage, goal) = if (filterPkg == null) {
-                val dayUsage = daily.appUsages.filterKeys { pkg -> tracked.isEmpty() || pkg in tracked }.values.sum()
-                val autoGoal = apps.filter { tracked.isEmpty() || it.packageName in tracked }.sumOf { it.goalTime }
-                dayUsage to (overallGoal ?: autoGoal)
+                // ✅ “전체”: 그 날짜의 목표에 포함된 앱들만 합산 (과거 추적앱 기준)
+                val goalSum = dayGoals.values.sum()
+                val usageSum = daily.appUsages
+                    .filterKeys { it in dayGoals.keys }
+                    .values.sum()
+                usageSum to goalSum
             } else {
-                val dayUsage = daily.appUsages[filterPkg] ?: 0
-                val appGoal = apps.find { it.packageName == filterPkg }?.goalTime ?: 0
-                dayUsage to appGoal
+                // ✅ “특정 앱”: 그 날짜 목표를 기준으로
+                val g = dayGoals[filterPkg] ?: 0
+                val u = daily.appUsages[filterPkg] ?: 0
+                u to g
             }
 
             if (goal <= 0) continue
@@ -299,8 +341,10 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
             }
             decorators.add(CalendarDecoratorData(calDay, status))
         }
+
         decorators
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
 
     val calendarStatsTextFlow: StateFlow<String> = combine(
         calendarDecoratorDataFlow, selectedMonthFlow, _selectedFilter
@@ -309,40 +353,105 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         "${month}월 목표 성공일: 총 ${successDays}일!"
     }.stateIn(viewModelScope, SharingStarted.Lazily, "")
 
-    private fun calculateOverallStreak(dailies: List<DailyUsage>, apps: List<AppUsage>, tracked: Set<String>, goal: Int): Int {
-        if (goal <= 0) return 0
+    private fun calculateOverallStreak(
+        dailies: List<DailyUsage>,
+        goalsHistory: List<GoalHistoryEntity>,
+        filterPkg: String?
+    ): Int {
+        val goalByDate = goalsHistory.associate { it.date to it.toGoalMap() }
         val sortedDays = dailies.sortedByDescending { it.date }
+
         var wasSuccess: Boolean? = null
         var streakCount = 0
+
         for (day in sortedDays) {
-            val dayUsage = day.appUsages.filterKeys { pkg -> tracked.isEmpty() || pkg in tracked }.values.sum()
-            val success = dayUsage <= goal
+            val goals = goalByDate[day.date].orEmpty()
+            if (goals.isEmpty()) continue // 목표 없는 날은 스킵(또는 break로 바꿔도 됨)
+
+            val (usage, goal) = if (filterPkg == null) {
+                val g = goals.values.sum()
+                val u = day.appUsages.filterKeys { it in goals.keys }.values.sum()
+                u to g
+            } else {
+                val g = goals[filterPkg] ?: 0
+                val u = day.appUsages[filterPkg] ?: 0
+                u to g
+            }
+
+            if (goal <= 0) continue
+            val success = usage <= goal
+
             if (wasSuccess == null) wasSuccess = success
             if (success == wasSuccess) streakCount++ else break
         }
+
         return if (wasSuccess == true) streakCount else -streakCount
     }
 
+
     val streakTextFlow: StateFlow<String> = combine(
-        appUsageListFlow, dailyUsageListFlow, _selectedFilter, trackedPackagesFlow, _overallGoalMinutes
-    ) { apps, dailies, filterPkg, tracked, overallGoal ->
-        val streak = if (filterPkg == null) calculateOverallStreak(dailies, apps, tracked, overallGoal ?: 0)
-        else apps.find { it.packageName == filterPkg }?.streak ?: 0
+        appUsageListFlow, dailyUsageListFlow, goalHistoryListFlow, _selectedFilter
+    ) { apps, dailies, goalsHistory, filterPkg ->
+        val streak = calculateOverallStreak(dailies, goalsHistory, filterPkg)
         val appName = if (filterPkg == null) "전체" else apps.find { it.packageName == filterPkg }?.appLabel ?: "알 수 없음"
         val days = kotlin.math.abs(streak)
         val emoji = if (streak >= 0) "🔥" else "💀"
         "$appName: $emoji$days"
     }.stateIn(viewModelScope, SharingStarted.Lazily, "")
 
+    val chartGoalDataFlow: StateFlow<List<Entry>> = combine(
+        goalHistoryListFlow, _selectedFilter, selectedMonthFlow
+    ) { goalsHistory, filterPkg, month ->
+
+        goalsHistory
+            .filter { it.date.substring(5, 7).toInt() == month }
+            .mapNotNull { goalEntity ->
+                val dayGoals = goalEntity.toGoalMap()
+                if (dayGoals.isEmpty()) return@mapNotNull null
+
+                val dayOfMonth = goalEntity.date.substring(8, 10).toFloat()
+
+                val goal = if (filterPkg == null) {
+                    // ✅ 전체: 그 날짜에 설정된 목표 합
+                    dayGoals.values.sum()
+                } else {
+                    // ✅ 특정 앱: 그 날짜에 설정된 해당 앱 목표
+                    dayGoals[filterPkg] ?: return@mapNotNull null
+                }
+
+                Entry(dayOfMonth, goal.toFloat())
+            }
+    }
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+
     val chartDataFlow: StateFlow<List<Entry>> = combine(
-        dailyUsageListFlow, _selectedFilter, trackedPackagesFlow, selectedMonthFlow
-    ) { dailies, filterPkg, tracked, month ->
-        dailies.filter { it.date.substring(5, 7).toInt() == month }.map { daily ->
-            val dayOfMonth = daily.date.substring(8, 10).toFloat()
-            val usage = if (filterPkg == null) daily.appUsages.filterKeys { pkg -> tracked.isEmpty() || pkg in tracked }.values.sum()
-            else daily.appUsages[filterPkg] ?: 0
-            Entry(dayOfMonth, usage.toFloat())
-        }
+        dailyUsageListFlow, goalHistoryListFlow, _selectedFilter, selectedMonthFlow
+    ) { dailies, goalsHistory, filterPkg, month ->
+        val goalByDate: Map<String, Map<String, Int>> =
+            goalsHistory.associate { it.date to it.toGoalMap() }
+
+        dailies
+            .filter { it.date.substring(5, 7).toInt() == month }
+            .mapNotNull { daily ->
+                val dayGoals = goalByDate[daily.date].orEmpty()
+                if (dayGoals.isEmpty()) return@mapNotNull null  // 목표 없는 날은 그래프에서 제외(원하면 0으로 넣어도 됨)
+
+                val dayOfMonth = daily.date.substring(8, 10).toFloat()
+
+                val usage = if (filterPkg == null) {
+                    // ✅ “전체”: 그 날짜 목표에 포함된 앱만 합산(과거 추적앱 기준)
+                    daily.appUsages
+                        .filterKeys { it in dayGoals.keys }
+                        .values.sum()
+                } else {
+                    // ✅ “특정 앱”: 그 날짜 목표에 포함된 앱이면 사용량, 아니면 0
+                    if (filterPkg in dayGoals.keys) (daily.appUsages[filterPkg] ?: 0) else 0
+                }
+
+                Entry(dayOfMonth, usage.toFloat())
+            }
+
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     // ========================== 날짜 선택시 앱 사용기록 불러오기 =============================
@@ -350,13 +459,75 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         val uid = getCurrentUserUid() ?: return@launch
         val dateStr = "%04d-%02d-%02d".format(selectedDate.year, selectedDate.month, selectedDate.day)
 
-        try {
-            val (goals, usages) = syncRepository.fetchGoalAndUsageForDate(uid, dateStr)
+        val pm = context.packageManager
 
-            val pm = context.packageManager
+        try {
+            val db = DatabaseProvider.getDatabase(getApplication())
+            val goalDao = db.goalHistoryDao()
+
+            // 1) ✅ Room(SSOT)에서 먼저 조회
+            val localUsages: Map<String, Int> = repository.getDailyAppUsage(uid, dateStr)
+
+            if (localUsages.isNotEmpty()) {
+                // ✅ 1) Room goals(과거 목표) 먼저
+                val localGoalEntity = goalDao.getGoalsOnce(uid, dateStr)
+                val localGoals: Map<String, Int> = localGoalEntity?.toGoalMap() ?: emptyMap()
+
+            // ✅ 2) goals가 없으면 Firestore에서 가져와서 Room에 1일치 저장
+                val (goals, usagesFromFs) = if (localGoals.isNotEmpty()) {
+                    localGoals to emptyMap()
+                } else {
+                    val (fsGoals, fsUsages) = syncRepository.fetchGoalAndUsageForDate(uid, dateStr)
+                    // goals 1일치 Room 백필
+                    runCatching {
+                        goalDao.insertOrUpdate(GoalHistoryEntity.fromGoalMap(uid, dateStr, fsGoals))
+                    }
+                    fsGoals to fsUsages
+                }
+
+            // ✅ 3) 표시할 앱 목록은 "그 날짜 goals"의 키
+                val pkgs = goals.keys
+
+                val list = pkgs.map { pkg ->
+                    val goalTime = goals[pkg] ?: 0
+                    // ✅ 사용량은 Room 우선, 없으면 Firestore usage fallback
+                    val usage = localUsages[pkg] ?: (usagesFromFs[pkg] ?: 0)
+
+                    val appInfo = try { pm.getApplicationInfo(pkg, 0) } catch (_: Exception) { null }
+                    val label = appInfo?.let { pm.getApplicationLabel(it).toString() } ?: pkg
+                    val icon = appInfo?.let { pm.getApplicationIcon(it) }
+
+                    AppUsage(
+                        packageName = pkg,
+                        appLabel = label,
+                        icon = icon,
+                        currentUsage = usage,
+                        goalTime = goalTime,
+                        streak = 0
+                    ) to goalTime
+                }
+
+                _dailyDetailFlow.value = list
+                return@launch
+            }
+
+            // 2) ✅ Room에 없으면 Firestore fallback
+            val localGoalEntity = goalDao.getGoalsOnce(uid, dateStr)
+            val localGoals: Map<String, Int> = localGoalEntity?.toGoalMap() ?: emptyMap()
+
+            val (goals, usages) = if (localGoals.isNotEmpty()) {
+                localGoals to emptyMap()
+            } else {
+                val (fsGoals, fsUsages) = syncRepository.fetchGoalAndUsageForDate(uid, dateStr)
+                runCatching {
+                    goalDao.insertOrUpdate(GoalHistoryEntity.fromGoalMap(uid, dateStr, fsGoals))
+                }
+                fsGoals to fsUsages
+            }
+
             val list = goals.map { (pkg, goalTime) ->
                 val usage = usages[pkg] ?: 0
-                val appInfo = try { pm.getApplicationInfo(pkg, 0) } catch (e: Exception) { null }
+                val appInfo = try { pm.getApplicationInfo(pkg, 0) } catch (_: Exception) { null }
                 val label = appInfo?.let { pm.getApplicationLabel(it).toString() } ?: pkg
                 val icon = appInfo?.let { pm.getApplicationIcon(it) }
 
@@ -371,11 +542,20 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
             }
 
             _dailyDetailFlow.value = list
+
+            // 3) (선택) ✅ Firestore로 가져온 "사용량"은 Room에 1일치 백필해두기(다음 클릭부터 빨라짐)
+            // - goals는 별도 테이블이 없어서 여기서는 usage만 백필
+            runCatching {
+                val db = DatabaseProvider.getDatabase(getApplication())
+                val json = com.google.gson.Gson().toJson(usages)
+                db.dailyUsageDao().insertOrUpdate(com.example.pixeldiet.data.DailyUsageEntity(uid, dateStr, json))
+            }
         } catch (e: Exception) {
             Log.e("CalendarDetail", "Failed to load daily detail: $e")
             _dailyDetailFlow.value = emptyList()
         }
     }
+
 
     // ------------------- 데이터 로딩(내부) -------------------
     private suspend fun refreshDataInternal(uid: String) {

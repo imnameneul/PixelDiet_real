@@ -58,6 +58,33 @@ data class DailyUsageEntity(
     }
 }
 
+// 하루 단위 목표 기록 (GoalHistory)
+// -------------------- GoalHistoryEntity --------------------
+@Entity(
+    tableName = "goal_history",
+    primaryKeys = ["uid", "date"]  // uid + date 조합 PK
+)
+data class GoalHistoryEntity(
+    val uid: String,
+    val date: String,          // "YYYY-MM-DD"
+    val appGoalsJson: String   // Map<String, Int>를 JSON으로 저장
+) {
+    fun toGoalMap(): Map<String, Int> {
+        val type = object : TypeToken<Map<String, Int>>() {}.type
+        return Gson().fromJson(appGoalsJson, type)
+    }
+
+    companion object {
+        fun fromGoalMap(uid: String, date: String, goals: Map<String, Int>): GoalHistoryEntity {
+            return GoalHistoryEntity(
+                uid = uid,
+                date = date,
+                appGoalsJson = Gson().toJson(goals)
+            )
+        }
+    }
+}
+
 @Entity(tableName = "notification_settings")
 data class NotificationSettingsEntity(
     @PrimaryKey val id: Int = 0,  // 항상 하나만 존재

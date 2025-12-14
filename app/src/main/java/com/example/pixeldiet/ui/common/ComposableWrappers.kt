@@ -10,8 +10,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.pixeldiet.model.CalendarDecoratorData
 import com.example.pixeldiet.model.DayStatus
 import com.example.pixeldiet.viewmodel.SharedViewModel
-import com.github.mikephil.charting.charts.BarChart
-import com.github.mikephil.charting.components.LimitLine
 //import com.github.mikephil.charting.components.XAxis
 import com.github.mikephil.charting.data.BarData
 import com.github.mikephil.charting.data.BarDataSet
@@ -22,6 +20,11 @@ import com.prolificinteractive.materialcalendarview.DayViewDecorator
 import com.prolificinteractive.materialcalendarview.DayViewFacade
 import com.prolificinteractive.materialcalendarview.MaterialCalendarView
 import com.prolificinteractive.materialcalendarview.spans.DotSpan
+import com.github.mikephil.charting.charts.CombinedChart
+import com.github.mikephil.charting.data.CombinedData
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
+
 
 // ----------------------
 // MaterialCalendarView 래퍼
@@ -87,43 +90,68 @@ fun WrappedMaterialCalendar(
 @Composable
 fun WrappedBarChart(
     modifier: Modifier = Modifier,
-    chartData: List<Entry>,
-    goalLine: Float? = null
+    chartData: List<Entry>,          // usage bars
+    goalSeries: List<Entry> = emptyList() // ✅ 날짜별 목표 line
 ) {
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            BarChart(context).apply {
+            CombinedChart(context).apply {
                 description.isEnabled = false
                 axisRight.isEnabled = false
                 axisLeft.axisMinimum = 0f
                 xAxis.granularity = 1f
                 xAxis.setDrawGridLines(false)
                 axisLeft.setDrawGridLines(true)
-                legend.isEnabled = false
+                legend.isEnabled = true     // ✅ 범례 켜기
             }
         },
-        update = { barChart ->
-            val entries = chartData.map { BarEntry(it.x, it.y) }
-            val dataSet = BarDataSet(entries, "사용 시간(분)").apply { valueTextSize = 10f }
-            barChart.data = BarData(dataSet).apply { barWidth = 0.6f }
+        update = { chart ->
+            // 1) Bars (usage)
+            val barEntries = chartData.map { BarEntry(it.x, it.y) }
+            val barDataSet = BarDataSet(barEntries, "사용 시간").apply {
+                valueTextSize = 10f
+            }
+            val barData = BarData(barDataSet).apply { barWidth = 0.6f }
 
-            val leftAxis = barChart.axisLeft
-            leftAxis.removeAllLimitLines()
+            // 2) Line (goal series)
+            val lineEntries = goalSeries
+                .sortedBy { it.x }
+                .map { Entry(it.x, it.y) }
 
-            goalLine?.let {
-                leftAxis.addLimitLine(LimitLine(it, "목표").apply {
+            val lineData = if (lineEntries.isNotEmpty()) {
+                val lineDataSet = LineDataSet(lineEntries, "목표 시간").apply {
                     lineWidth = 2f
-                    enableDashedLine(10f, 10f, 0f)
-                    textSize = 10f
-                })
+                    setDrawValues(false)
+                    setDrawCircles(true)
+                    circleRadius = 3f
+
+                    // ✅ 목표시간 그래프 색상: 빨간색
+                    color = android.graphics.Color.RED
+                    setCircleColor(android.graphics.Color.RED)
+                    enableDashedLine(8f, 4f, 0f) // 점선
+                }
+                LineData(lineDataSet)
+            } else {
+                LineData()
             }
 
-            val maxUsage = entries.maxOfOrNull { it.y } ?: 0f
-            val maxValue = maxOf(maxUsage, goalLine ?: 0f)
-            leftAxis.axisMaximum = (maxValue * 1.1f).coerceAtLeast(10f)
+            // 3) Combine
+            val combined = CombinedData().apply {
+                setData(barData)
+                setData(lineData)
+            }
+            chart.data = combined
 
-            barChart.invalidate()
+            // 4) Axis max: bars와 goals 중 큰 값 기준
+            val maxUsage = barEntries.maxOfOrNull { it.y } ?: 0f
+            val maxGoal = lineEntries.maxOfOrNull { it.y } ?: 0f
+            val maxValue = maxOf(maxUsage, maxGoal)
+
+            chart.axisLeft.axisMaximum = (maxValue * 1.1f).coerceAtLeast(10f)
+
+            chart.invalidate()
         }
+
     )
 }

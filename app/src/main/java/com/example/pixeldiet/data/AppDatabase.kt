@@ -6,14 +6,25 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
-
 import com.example.pixeldiet.friend.group.GroupRecord
 import com.example.pixeldiet.friend.FriendRequest
 import com.example.pixeldiet.friend.FriendRecord
+import com.example.pixeldiet.data.GoalHistoryEntity
+import com.example.pixeldiet.data.GoalHistoryDao
 
 @Database(
-    entities = [UserProfileEntity::class, GroupRecord::class, FriendRecord::class, FriendRequest::class,  DailyUsageEntity::class, AppUsageEntity::class,TrackedAppEntity::class, NotificationSettingsEntity::class],
-    version = 5
+    entities = [
+        UserProfileEntity::class,
+        GroupRecord::class,
+        FriendRecord::class,
+        FriendRequest::class,
+        DailyUsageEntity::class,
+        GoalHistoryEntity::class, // ✅ 추가
+        AppUsageEntity::class,
+        TrackedAppEntity::class,
+        NotificationSettingsEntity::class
+    ],
+    version = 6
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -25,6 +36,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun notificationSettingsDao(): NotificationSettingsDao
     abstract fun groupDao(): GroupDao
     abstract fun friendDao(): FriendDao
+
+    abstract fun goalHistoryDao(): GoalHistoryDao  // ✅ 추가
 
     companion object {
         @Volatile

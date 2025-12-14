@@ -149,7 +149,23 @@ object UsageRepository {
         _appUsageList.value = newList
     }
 
+
     // ---------------- 실제 사용 데이터 로딩 ----------------
+
+    private suspend fun refreshDailyUsageCache(uid: String, days: Int = 120) {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN)
+        val to = sdf.format(Date())
+        val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -(days - 1)) }
+        val from = sdf.format(cal.time)
+
+        val list = db.dailyUsageDao().getUsageInRange(uid, from, to)
+            .first()
+            .map { it.toDailyUsage() }
+
+        _dailyUsageList.value = list
+    }
+
+
     suspend fun loadRealData(context: Context, uid: String, forceUpload: Boolean = false) {
         if (!::db.isInitialized) {
             db = DatabaseProvider.getDatabase(context)
@@ -186,6 +202,7 @@ object UsageRepository {
 
         CoroutineScope(Dispatchers.IO).launch {
             db.dailyUsageDao().insertOrUpdate(dailyEntity)
+            refreshDailyUsageCache(uid)   // ✅ 추가 (최근 120일 캐시 갱신)
         }
 
         // ✅ 업로드는 throttle 적용 (서비스가 1분마다 돌더라도 Firestore는 과도하게 안 찍힘)

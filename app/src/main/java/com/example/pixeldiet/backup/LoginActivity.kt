@@ -76,6 +76,7 @@ class LoginActivity : AppCompatActivity() {
             userDao = db.userProfileDao(),
             trackedAppDao = db.trackedAppDao(),
             dailyUsageDao = db.dailyUsageDao(),
+            goalHistoryDao = db.goalHistoryDao(),
             groupDao = db.groupDao(),
             friendDao = db.friendDao()
         )

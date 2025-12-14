@@ -12,6 +12,8 @@ import com.example.pixeldiet.data.UserProfileEntity
 import com.example.pixeldiet.friend.FriendRecord
 import com.example.pixeldiet.friend.group.GroupRecord
 import com.example.pixeldiet.repository.UsageRepository
+import com.example.pixeldiet.data.GoalHistoryDao
+import com.example.pixeldiet.data.GoalHistoryEntity
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
@@ -21,6 +23,8 @@ import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Calendar
+
 
 /**
  * Firestore -> Room 복원(동기화) 담당.
@@ -33,6 +37,7 @@ class BackupManager(
     private val userDao: UserProfileDao,
     private val trackedAppDao: TrackedAppDao,
     private val dailyUsageDao: DailyUsageDao,
+    private val goalHistoryDao: GoalHistoryDao,   // ✅ 추가
     private val groupDao: GroupDao,
     private val friendDao: FriendDao
 ) {
@@ -125,32 +130,69 @@ class BackupManager(
             Log.e("BackupManager", "[TrackedApps] Failed to sync", e)
         }
 
-        // 3️⃣ DailyUsage 동기화 (오늘만)
+        // 2-1️⃣ GoalHistory 동기화 (최근 N일 백필)
         try {
-            val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-            val dailySnap = firestore.collection("users")
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val cal = Calendar.getInstance()
+            cal.add(Calendar.DAY_OF_YEAR, -90) // 최근 90일 (DailyUsage와 동일)
+            val fromDate = sdf.format(cal.time)
+
+            val goalSnap = firestore.collection("users")
                 .document(uid)
-                .collection("dailyRecords")
-                .whereEqualTo("date", today)
+                .collection("goalHistory")
+                .whereGreaterThanOrEqualTo("date", fromDate)
+                .orderBy("date", Query.Direction.ASCENDING)
                 .get()
                 .await()
 
-            Log.d("BackupManager", "[DailyUsage] ${dailySnap.size()} documents found for $today")
+            val entities = mutableListOf<GoalHistoryEntity>()
+
+            goalSnap.documents.forEach { doc ->
+                val date = doc.getString("date") ?: return@forEach
+                val appGoals = doc.get("appUsages") as? Map<String, Long> ?: emptyMap()
+
+                val goalsInt = appGoals.mapValues { it.value.toInt() }
+                val entity = GoalHistoryEntity.fromGoalMap(uid, date, goalsInt)
+                entities.add(entity)
+            }
+
+            goalHistoryDao.insertAll(entities)
+            Log.d("BackupManager", "[GoalHistory] Backfilled ${entities.size} days")
+        } catch (e: Exception) {
+            Log.e("BackupManager", "[GoalHistory] Failed to backfill", e)
+        }
+
+
+        // 3️⃣ DailyUsage 동기화 (최근 N일 백필)
+        try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val cal = Calendar.getInstance()
+            cal.add(Calendar.DAY_OF_YEAR, -90) // 최근 90일
+            val fromDate = sdf.format(cal.time)
+
+            val dailySnap = firestore.collection("users")
+                .document(uid)
+                .collection("dailyRecords")
+                .whereGreaterThanOrEqualTo("date", fromDate)
+                .orderBy("date", Query.Direction.ASCENDING)
+                .get()
+                .await()
+
+            val entities = mutableListOf<DailyUsageEntity>()
 
             dailySnap.documents.forEach { doc ->
+                val date = doc.getString("date") ?: return@forEach
                 val appUsages = doc.get("appUsages") as? Map<String, Long> ?: emptyMap()
                 val json = Gson().toJson(appUsages.mapValues { it.value.toInt() })
-                val dailyEntity = DailyUsageEntity(uid, today, json)
-
-                dailyUsageDao.insertOrUpdate(dailyEntity)
-                Log.d(
-                    "BackupManager",
-                    "[DailyUsage] Inserted: ${dailyEntity.uid} / Date: ${dailyEntity.date} / Apps: $appUsages"
-                )
+                entities.add(DailyUsageEntity(uid, date, json))
             }
+
+            dailyUsageDao.insertAll(entities)
+            Log.d("BackupManager", "[DailyUsage] Backfilled ${entities.size} days")
         } catch (e: Exception) {
-            Log.e("BackupManager", "[DailyUsage] Failed to sync", e)
+            Log.e("BackupManager", "[DailyUsage] Failed to backfill", e)
         }
+
 
         // 4️⃣ Group 동기화
         try {

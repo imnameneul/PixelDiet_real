@@ -18,12 +18,12 @@ fun AddFriendDialog(
         title = { Text("친구 추가") },
         text = {
             Column {
-                Text("추가할 친구의 UID를 입력하세요")
+                Text("추가할 친구의 친구코드를 입력하세요")
                 Spacer(modifier = Modifier.height(8.dp))
                 TextField(
                     value = uid,
                     onValueChange = { uid = it },
-                    placeholder = { Text("UID 입력") },
+                    placeholder = { Text("친구코드 입력") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

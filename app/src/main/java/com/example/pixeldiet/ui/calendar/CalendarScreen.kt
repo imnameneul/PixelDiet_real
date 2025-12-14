@@ -44,6 +44,12 @@ fun CalendarScreen(viewModel: SharedViewModel = viewModel()) {
     var selectedDate by remember { mutableStateOf<CalendarDay?>(null) }
     var showDailyDetail by remember { mutableStateOf(false) }
     val dailyDetail by viewModel.dailyDetailFlow.collectAsState(initial = emptyList())
+    val goalSeries by viewModel.chartGoalDataFlow.collectAsState(initial = emptyList())
+
+    LaunchedEffect(Unit) {
+        val today = CalendarDay.today()
+        viewModel.setSelectedMonth(today.year, today.month)
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -83,7 +89,11 @@ fun CalendarScreen(viewModel: SharedViewModel = viewModel()) {
                 Column(Modifier.padding(16.dp)) {
                     Text("이번 달 사용 시간", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontSize = 16.sp)
                     Spacer(Modifier.height(16.dp))
-                    WrappedBarChart(modifier = Modifier.fillMaxSize(), chartData = chartData, goalLine = goalMinutes.takeIf { it > 0 }?.toFloat())
+                    WrappedBarChart(
+                        modifier = Modifier.fillMaxSize(),
+                        chartData = chartData,
+                        goalSeries = goalSeries
+                    )
                 }
             }
         }
