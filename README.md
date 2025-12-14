@@ -49,6 +49,7 @@
 - 알림창, 리포트 기능, 다크모드
 - 앱 시작할때마다 sync 불러와서 로딩 긴거 해결
 - 다른 앱에서 가져왔을때 폰에 없는 앱: com.instagram.android로 뜨는 문제
+- viewmdoel 초기화 버전에서 건우님 loginActivity 버전으로 바꿔서도 확인해보기
 
 
 
