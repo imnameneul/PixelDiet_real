@@ -61,6 +61,33 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
     private val _overallGoalMinutes = MutableStateFlow<Int?>(null)
     val overallGoalFlow: StateFlow<Int?> = _overallGoalMinutes
 
+    // ----------- 1) “마지막 복원 기록” 저장용 Prefs 추가 -----------
+    private val restorePrefs by lazy {
+        getApplication<Application>().getSharedPreferences("restore_prefs", Context.MODE_PRIVATE)
+    }
+
+    private companion object {
+        private const val KEY_LAST_RESTORE_UID = "last_restore_uid"
+        private const val KEY_LAST_RESTORE_AT = "last_restore_at"
+        private const val RESTORE_TTL_MS = 24L * 60 * 60 * 1000 // 24시간(원하면 조절)
+    }
+
+    private suspend fun shouldRestoreFromFirestore(uid: String): Boolean {
+        val lastUid = restorePrefs.getString(KEY_LAST_RESTORE_UID, null)
+        if (lastUid != uid) return true            // 계정이 바뀌었으면 복원 필요
+
+        val lastAt = restorePrefs.getLong(KEY_LAST_RESTORE_AT, 0L)
+        if (lastAt == 0L) return true              // 복원 기록이 없으면 1회 복원
+        if (System.currentTimeMillis() - lastAt > RESTORE_TTL_MS) return true // 너무 오래됐으면 복원
+
+        // ✅ “필요할 때만 예외적 복원” 핵심: 로컬(Room)이 비어있으면 복원
+        val db = DatabaseProvider.getDatabase(getApplication())
+        val hasProfile = db.userProfileDao().getUserProfileOnce(uid) != null
+        val hasAnyUsage = db.dailyUsageDao().hasAnyDailyUsage(uid)
+
+        return !hasProfile || !hasAnyUsage
+    }
+
     // ------------------- Firebase Auth -------------------
     private val auth = FirebaseAuth.getInstance()
     private val _userName = MutableStateFlow(getUserName())
@@ -126,12 +153,15 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
                 _isDataReady.value = true
                 return@launch
             }
-            syncFromFirestoreInternal(uid, force = false)
+            // ✅ B안: 기본은 "로컬만 빠르게" / 단, 예외적으로 "필요할 때만 1회 복원"
+            if (shouldRestoreFromFirestore(uid)) {
+                syncFromFirestoreInternal(uid, force = true)
+            } else {
+                refreshDataInternal(uid)
+                hasSyncedOnce = true        // ✅ 세션 내에서 “이미 준비됨” 표시
+                _isDataReady.value = true
+            }
         }
-    }
-
-    fun markDataReady() {
-        _isDataReady.value = true
     }
 
     // ------------------- SharedPreferences / Room 업데이트 -------------------
@@ -171,6 +201,7 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
 
             trackedPrefs.edit().clear().apply()
             goalPrefs.edit().clear().apply()
+            restorePrefs.edit().clear().apply()
 
             auth.signOut()
 
@@ -186,6 +217,7 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /*
     fun loadDailyAppUsage(uid: String, date: String) {
         viewModelScope.launch {
             Log.d("AppUsageList", "UID: $uid, Date: $date")
@@ -200,6 +232,7 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
             Log.d("AppUsageList", "Loaded: $usageList")
         }
     }
+    */
 
     fun onGoogleLoginSuccess(idToken: String) {
         viewModelScope.launch {
@@ -312,17 +345,6 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
         }
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    // 사용 ❌
-    private fun calculateRealtimeUsage(): Map<String, Int> {
-        val usageStatsManager =
-            context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val end = System.currentTimeMillis()
-        val start = end - 24 * 60 * 60 * 1000
-        val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, start, end)
-            ?: emptyList()
-        return stats.associate { it.packageName to (it.totalTimeInForeground / 1000 / 60).toInt() }
-    }
-
     // ========================== 날짜 선택시 앱 사용기록 불러오기 =============================
     fun loadDailyDetail(selectedDate: CalendarDay, context: Context) = viewModelScope.launch {
         val uid = getCurrentUserUid() ?: return@launch
@@ -399,6 +421,11 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
             syncRepository.syncFromFirestore(uid)
             hasSyncedOnce = true
 
+            restorePrefs.edit()
+                .putString(KEY_LAST_RESTORE_UID, uid)
+                .putLong(KEY_LAST_RESTORE_AT, System.currentTimeMillis())
+                .apply()
+
             // 동기화 끝났으니 화면 데이터 재계산
             refreshDataInternal(uid)
         } catch (e: Exception) {
@@ -451,6 +478,31 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
                 Log.e("SharedViewModel", "Failed to save tracked apps with goals: $e")
             }
         }
+
+    // ------------------- 트래킹 앱 삭제 -------------------
+    fun deleteTrackedApp(packageName: String) = viewModelScope.launch(Dispatchers.IO) {
+        try {
+            // 1) Room(tracked_apps)에서 삭제
+            val db = DatabaseProvider.getDatabase(getApplication())
+            db.trackedAppDao().deleteByPackage(packageName)
+
+            // 2) (선택) 목표/설정도 같이 정리하고 싶으면 여기서 처리 가능
+            // - 예: overallGoalMinutes 재계산은 refreshDataInternal이 해줌
+
+            // 3) UI 갱신
+            val uid = getCurrentUserUid() ?: return@launch
+            refreshDataInternal(uid)
+        } catch (e: Exception) {
+            Log.e("SharedViewModel", "Failed to delete tracked app($packageName): $e")
+        }
+    }
+
+    fun deleteTrackedApps(packages: List<String>) = viewModelScope.launch(Dispatchers.IO) {
+        val db = DatabaseProvider.getDatabase(getApplication())
+        packages.forEach { db.trackedAppDao().deleteByPackage(it) }
+        val uid = getCurrentUserUid() ?: return@launch
+        refreshDataInternal(uid)
+    }
 
     // =================== 백그라운드 이동시 일일 사용기록 백업 ==================
     fun uploadDailyUsageToFirebase() = viewModelScope.launch(Dispatchers.IO) {

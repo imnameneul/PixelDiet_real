@@ -32,9 +32,9 @@ import java.util.*
 
 
 private enum class SortMode(val buttonLabel: String) {
-    USAGE_DESC("정렬: 사용시간순"),
-    NAME_ASC("정렬: 이름순"),
-    OVER_RATIO_DESC("정렬: 목표초과순")
+    USAGE_DESC("사용시간순"),
+    NAME_ASC("이름순"),
+    OVER_RATIO_DESC("목표초과순")
 }
 
 private fun SortMode.next(): SortMode = when (this) {
@@ -46,7 +46,9 @@ private fun SortMode.next(): SortMode = when (this) {
 @Composable
 fun MainScreen(
     viewModel: SharedViewModel,              // ✅ 기본값 제거
-    onAppSelectionClick: () -> Unit          // ✅ 기본값 제거 (항상 넘겨주기)
+    onAppSelectionClick: () -> Unit,          // ✅ 기본값 제거 (항상 넘겨주기)
+    onAppDeleteClick: () -> Unit,   // 추가
+    onGoalSettingClick: () -> Unit   // ✅ 추가
 ) {
     val isDataReady by viewModel.isDataReady.collectAsState()
     Log.d("MainScreen", "isDataReady: $isDataReady")
@@ -68,7 +70,6 @@ fun MainScreen(
     val context = LocalContext.current
     val pm = context.packageManager
 
-    var showGoalDialog by remember { mutableStateOf(false) }
     val displayAppList = trackedPackagesWithGoals.map { tracked ->
         val usage = appList.find { it.packageName == tracked.packageName }
         if (usage != null) {
@@ -133,18 +134,24 @@ fun MainScreen(
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             ) {
-                Text("추적할 앱 선택하기")
+                Text("앱 선택하기")
             }
+            Button(
+                onClick = onAppDeleteClick,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            ) { Text("앱 삭제하기") }
         }
 
         // 목표 시간 설정 버튼
         item {
             Button(
-                onClick = { showGoalDialog = true },
+                onClick = onGoalSettingClick,
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("목표 시간 설정")
-            }
+            ) { Text("목표 시간 설정") }
         }
         // 시각화 거품 뷰
         item {
@@ -191,24 +198,6 @@ fun MainScreen(
         ) { app ->
             AppUsageCard(app)
         }
-    }
-
-    if (showGoalDialog) {
-        GoalSettingDialog(
-            appList = displayAppList,     // 추적앱 기준
-            overallGoal = overallGoal,    // 🔹 전체 목표시간 전달
-            onDismiss = { showGoalDialog = false },
-            onSave = { newGoals: Map<String, Int>, totalGoalMinutes: Int? ->
-                // 1️⃣ 앱별 목표시간 DB + ViewModel 상태 한 번에 갱신
-                viewModel.saveTrackedAppsWithGoals(newGoals)
-                viewModel.uploadDailyGoalToFirebase(newGoals)
-
-                // 2️⃣ 전체 목표시간 업데이트
-                viewModel.setOverallGoal(totalGoalMinutes)
-
-                showGoalDialog = false
-            }
-        )
     }
 
 }

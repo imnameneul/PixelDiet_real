@@ -29,6 +29,8 @@ import com.example.pixeldiet.ui.friend.FriendViewModel
 import com.example.pixeldiet.ui.main.MainScreen
 import com.example.pixeldiet.ui.settings.SettingsScreen
 import com.example.pixeldiet.viewmodel.SharedViewModel
+import com.example.pixeldiet.ui.main.AppDeleteScreen
+import com.example.pixeldiet.ui.main.GoalSettingScreen
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -109,7 +111,9 @@ fun AppNavigation(sharedViewModel: SharedViewModel = viewModel()) {
             composable(BottomNavItem.Main.route) {
                 MainScreen(
                     viewModel = sharedViewModel,
-                    onAppSelectionClick = { navController.navigate("app_selection") }
+                    onAppSelectionClick = { navController.navigate("app_selection") },
+                    onAppDeleteClick = { navController.navigate("app_delete") },   // 추가
+                    onGoalSettingClick = { navController.navigate("goal_setting") }  // ✅ 추가
                 )
             }
 
@@ -132,6 +136,20 @@ fun AppNavigation(sharedViewModel: SharedViewModel = viewModel()) {
 
             composable("app_selection") {
                 AppSelectionScreen(
+                    viewModel = sharedViewModel,
+                    onDone = { navController.popBackStack() }
+                )
+            }
+
+            composable("app_delete") {
+                AppDeleteScreen( // 새로 만들 화면
+                    viewModel = sharedViewModel,
+                    onDone = { navController.popBackStack() }
+                )
+            }
+
+            composable("goal_setting") {
+                GoalSettingScreen(
                     viewModel = sharedViewModel,
                     onDone = { navController.popBackStack() }
                 )

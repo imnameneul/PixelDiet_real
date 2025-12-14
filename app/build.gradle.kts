@@ -75,6 +75,12 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
 
+    // ✅ [추가 1] KeyboardOptions, KeyboardType 등을 사용하기 위해 필수
+    implementation("androidx.compose.ui:ui-text")
+
+    // ✅ [추가 2] 안드로이드 스튜디오 미리보기(Preview) 오류 해결을 위해 필수 (debugImplementation 사용)
+    debugImplementation("androidx.compose.ui:ui-tooling")
+
     // 🔑 ArrowForwardIos 같은 Material Icons Extended
     implementation("androidx.compose.material:material-icons-extended")
 

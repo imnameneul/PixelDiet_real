@@ -31,7 +31,7 @@ class SyncRepository(private val appContext: Context) {
     // ------------------- Firestore READ -------------------
 
     /** Firestore users/{uid}/dailyRecords/{today} 의 appUsages(Map<pkg, minutes>)를 가져온다. */
-    // 사용 ❌
+    // 사용엑스 ❌ -> 나중에 today만 다운 복원하는걸 전체 복원으로 고치고 sync할때 복원 받으면 될듯
     suspend fun loadBackupToday(uid: String): Map<String, Int> {
         val today = todayString()
         return try {

@@ -73,6 +73,10 @@ interface DailyUsageDao {
     // 6️⃣ 전체 삭제
     @Query("DELETE FROM daily_usage")
     suspend fun deleteAll()
+
+    // 데이터 존재 여부” 체크 추가
+    @Query("SELECT EXISTS(SELECT 1 FROM daily_usage WHERE uid = :uid LIMIT 1)")
+    suspend fun hasAnyDailyUsage(uid: String): Boolean
 }
 
 // -------------------- UserProfileDao --------------------
@@ -277,3 +281,4 @@ interface GroupDao {
     @Query("DELETE FROM group_table")
     suspend fun clearAll()
 }
+

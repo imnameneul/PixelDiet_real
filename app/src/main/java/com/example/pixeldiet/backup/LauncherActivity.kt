@@ -1,5 +1,6 @@
-package com.example.pixeldiet.backup
 
+package com.example.pixeldiet.backup
+/*
 import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
@@ -59,3 +60,4 @@ class LauncherActivity : AppCompatActivity() {
         finish()
     }
 }
+*/
