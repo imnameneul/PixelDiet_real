@@ -46,11 +46,13 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import kotlinx.coroutines.delay
 
 @Composable
 fun GroupDetailScreen(
@@ -64,6 +66,24 @@ fun GroupDetailScreen(
     val showGoalDialog by groupviewModel.showGoalDialog.collectAsState() // GoalSettingDialog 표시 상태
     val selectedApp by groupviewModel.selectedApp.collectAsState()
     val goalMinutes by groupviewModel.goalMinutes.collectAsState()
+    val now by produceState(
+        initialValue = System.currentTimeMillis()
+    ) {
+        while (true) {
+            delay(1_000L)
+            value = System.currentTimeMillis()
+        }
+    }
+    fun MemberUsage.displayUsage(now: Long): Int {
+        val startTime = lastStartTime   // 🔥 로컬 val로 캡처
+
+        return if (isRunning && startTime != null) {
+            usageSeconds + ((now - startTime) / 1000).toInt()
+        } else {
+            usageSeconds
+        }
+    }
+
 
     // 그룹 정보 초기 로딩
     LaunchedEffect(group) {
@@ -148,7 +168,10 @@ fun GroupDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                val sortedMembers = members.sortedBy { it.usage }
+                val now = System.currentTimeMillis()
+                val sortedMembers = members.sortedBy {
+                    it.displayUsage(now)
+                }
                 itemsIndexed(sortedMembers) { index, member ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -179,8 +202,21 @@ fun GroupDetailScreen(
 
                             Spacer(Modifier.width(12.dp))
                             Text(member.name, fontSize = 16.sp)
+                            if (member.isRunning) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "사용 중",
+                                    color = Color(0xFF2E7D32),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
                             Spacer(Modifier.weight(1f))
-                            Text("${member.usage}분", fontWeight = FontWeight.Medium)
+                            Text(
+                                text = "${member.displayUsage(now) / 60}분",
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }

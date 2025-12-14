@@ -89,13 +89,16 @@ class SharedViewModel(application: Application) : AndroidViewModel(application) 
 
     // ------------------- Total usage (calendar/stat) -------------------
     val totalUsageFlow: StateFlow<Pair<Int, Int>> =
-        dailyUsageListFlow.combine(trackedPackagesFlow) { dailies, tracked ->
-            val totalUsed = dailies.flatMap { it.appUsages.entries }
-                .filter { tracked.isEmpty() || it.key in tracked }
-                .sumOf { it.value }
-            totalUsed
-        }.combine(_overallGoalMinutes) { used, goal ->
-            used to (goal ?: 0)
+        combine(appUsageListFlow, trackedPackagesFlow, overallGoalFlow) { apps, tracked, overallGoal ->
+            val totalUsed = apps
+                .filter { tracked.isEmpty() || it.packageName in tracked }
+                .sumOf { it.currentUsage }   // ✅ 오늘 사용량 합
+
+            val totalGoal = overallGoal
+                ?: apps.filter { tracked.isEmpty() || it.packageName in tracked }
+                    .sumOf { it.goalTime }
+
+            totalUsed to totalGoal
         }.stateIn(viewModelScope, SharingStarted.Lazily, 0 to (_overallGoalMinutes.value ?: 0))
 
     // ------------------- Filters -------------------

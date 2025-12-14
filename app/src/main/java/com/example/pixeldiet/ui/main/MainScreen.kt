@@ -3,6 +3,7 @@ package com.example.pixeldiet.ui.main
 import android.util.Log
 import android.widget.Toast
 import com.example.pixeldiet.model.AppUsage
+import com.example.pixeldiet.ui.common.progressUi
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -13,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,11 +30,24 @@ import com.example.pixeldiet.viewmodel.SharedViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 
+
+private enum class SortMode(val buttonLabel: String) {
+    USAGE_DESC("정렬: 사용시간순"),
+    NAME_ASC("정렬: 이름순"),
+    OVER_RATIO_DESC("정렬: 목표초과순")
+}
+
+private fun SortMode.next(): SortMode = when (this) {
+    SortMode.USAGE_DESC -> SortMode.NAME_ASC
+    SortMode.NAME_ASC -> SortMode.OVER_RATIO_DESC
+    SortMode.OVER_RATIO_DESC -> SortMode.USAGE_DESC
+}
+
 @Composable
 fun MainScreen(
     viewModel: SharedViewModel,              // ✅ 기본값 제거
     onAppSelectionClick: () -> Unit          // ✅ 기본값 제거 (항상 넘겨주기)
-               ) {
+) {
     val isDataReady by viewModel.isDataReady.collectAsState()
     Log.d("MainScreen", "isDataReady: $isDataReady")
     if (!isDataReady) {
@@ -74,6 +89,28 @@ fun MainScreen(
     }
 
 
+    // ------------------- 정렬 토글(버튼 1개로 순환) -------------------
+    var sortMode by rememberSaveable { mutableStateOf(SortMode.USAGE_DESC) }
+
+    var sortMenuExpanded by remember { mutableStateOf(false) }
+
+    val sortedDisplayAppList = remember(displayAppList, sortMode) {
+        when (sortMode) {
+            SortMode.USAGE_DESC ->
+                displayAppList.sortedByDescending { it.currentUsage }
+
+            SortMode.NAME_ASC ->
+                displayAppList.sortedBy { it.appLabel.lowercase() }
+
+            SortMode.OVER_RATIO_DESC ->
+                displayAppList.sortedWith(
+                    compareByDescending<AppUsage> {
+                        if (it.goalTime > 0) it.currentUsage.toFloat() / it.goalTime.toFloat() else 0f
+                    }.thenByDescending { it.currentUsage }
+                )
+        }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -109,12 +146,10 @@ fun MainScreen(
                 Text("목표 시간 설정")
             }
         }
-
-
         // 시각화 거품 뷰
         item {
             VisualNotification(
-                displayAppList.sortedByDescending { it.currentUsage }  // ⭐ 사용시간 내림차순 정렬
+                sortedDisplayAppList
             )
         }
 
@@ -123,9 +158,35 @@ fun MainScreen(
             TotalProgress(totalUsage.first, totalUsage.second)
         }
 
+        item {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                FilledTonalButton(
+                    onClick = { sortMenuExpanded = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(sortMode.buttonLabel) // 현재 선택된 정렬 표시
+                }
+
+                DropdownMenu(
+                    expanded = sortMenuExpanded,
+                    onDismissRequest = { sortMenuExpanded = false }
+                ) {
+                    SortMode.values().forEach { mode ->
+                        DropdownMenuItem(
+                            text = { Text(mode.buttonLabel) },
+                            onClick = {
+                                sortMode = mode
+                                sortMenuExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
         // 개별 앱 카드 리스트 → displayAppList 사용
         items(
-            displayAppList,
+            sortedDisplayAppList,
             key = { it.packageName }
         ) { app ->
             AppUsageCard(app)
@@ -219,13 +280,15 @@ fun TotalProgress(totalUsage: Int, totalGoal: Int) {
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
-            val progress =
-                if (totalGoal > 0) (totalUsage.toFloat() / totalGoal).coerceAtMost(1f) else 0f
+            val ui = progressUi(totalUsage, totalGoal)
+
             LinearProgressIndicator(
-                progress = { progress },
+                progress = { ui.progress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(12.dp)
+                    .height(12.dp),
+                color = ui.color,
+                trackColor = Color.LightGray
             )
         }
     }

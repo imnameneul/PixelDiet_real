@@ -120,5 +120,4 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx:24.3.0")
     implementation("com.google.firebase:firebase-analytics-ktx:21.3.0")
     implementation("com.google.firebase:firebase-storage-ktx:20.3.0")
-
 }
