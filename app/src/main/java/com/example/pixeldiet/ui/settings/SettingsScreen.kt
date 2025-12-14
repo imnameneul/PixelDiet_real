@@ -48,6 +48,10 @@ import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.core.content.ContextCompat
+import com.example.pixeldiet.service.UsageTrackerService
+import com.example.pixeldiet.repository.NotificationPrefs
+
 
 @Composable
 fun SettingsScreen(viewModel: SharedViewModel = viewModel()) {
@@ -81,6 +85,9 @@ fun SettingsScreen(viewModel: SharedViewModel = viewModel()) {
     val isGoogleUser by viewModel.isGoogleUser.collectAsState()
     val settings by viewModel.notificationSettingsFlow.collectAsState(initial = null)
     var showIndividualSettings by remember { mutableStateOf(false) }
+
+    val notifPrefs = remember { NotificationPrefs(context) }
+    var notifServiceEnabled by remember { mutableStateOf(notifPrefs.isNotificationServiceEnabled()) }
 
     // UID 가져오기 (익명 로그인 대비)
     val uid = FirebaseAuth.getInstance().currentUser?.uid ?: "anonymous"
@@ -162,6 +169,52 @@ fun SettingsScreen(viewModel: SharedViewModel = viewModel()) {
 
         }
         item { Text("설정", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+
+        // ✅ 전체 알림(서비스) ON/OFF
+        item {
+            Card(elevation = CardDefaults.cardElevation(2.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = "전체 알림",
+                        tint = Color(0xFF4CAF50)
+                    )
+                    Spacer(Modifier.width(16.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("전체 알림", fontSize = 16.sp)
+                        Text("전체 알림 ON/OFF 버튼", fontSize = 12.sp, color = Color.Gray)
+                    }
+
+                    Switch(
+                        checked = notifServiceEnabled,
+                        onCheckedChange = { enabled ->
+                            notifServiceEnabled = enabled
+                            notifPrefs.setNotificationServiceEnabled(enabled)
+
+                            val intent = Intent(context, UsageTrackerService::class.java).apply {
+                                action = if (enabled) UsageTrackerService.ACTION_START
+                                else UsageTrackerService.ACTION_STOP
+                            }
+
+                            // ✅ 서비스 on/off 즉시 반영
+                            if (enabled) {
+                                ContextCompat.startForegroundService(context, intent)
+                                Toast.makeText(context, "알림 켜짐", Toast.LENGTH_SHORT).show()
+                            } else {
+                                context.startService(intent) // ACTION_STOP은 startService로 보내도 OK
+                                Toast.makeText(context, "알림 꺼짐", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                }
+            }
+        }
 
         // 알람 버튼
         item {

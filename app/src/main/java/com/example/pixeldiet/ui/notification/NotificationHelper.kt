@@ -6,6 +6,11 @@ import android.content.Context
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.example.pixeldiet.R
+import android.app.PendingIntent
+import android.content.Intent
+import androidx.core.app.TaskStackBuilder
+import com.example.pixeldiet.MainActivity
+
 
 object NotificationHelper {
 
@@ -14,6 +19,19 @@ object NotificationHelper {
 
     private const val CHANNEL_NAME_ALERT = "앱 사용 경고 알림"
     private const val CHANNEL_NAME_ONGOING = "사용시간 진행바"
+
+    private fun openAppPendingIntent(context: Context): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+
+        return TaskStackBuilder.create(context)
+            .addNextIntentWithParentStack(intent)
+            .getPendingIntent(0, flags)!!
+    }
+
 
     // 1. 알림 채널 생성 (안드로이드 8.0 이상 필수)
     fun createNotificationChannel(context: Context) {
@@ -49,19 +67,25 @@ object NotificationHelper {
         context: Context,
         title: String,
         text: String,
-        progressPercent: Int // 0~100
+        progressPercent: Int? // ✅ null이면 진행바 숨김
     ): android.app.Notification {
-        val p = progressPercent.coerceIn(0, 100)
 
-        return NotificationCompat.Builder(context, CHANNEL_ID_ONGOING)
-            .setSmallIcon(R.drawable.ic_launcher_foreground) // 너 앱 아이콘 리소스로 교체 추천
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID_ONGOING)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(text)
             .setOngoing(true)
-            .setOnlyAlertOnce(true) // 업데이트 때마다 소리/진동 안 나게
-            .setProgress(100, p, false) // ✅ 진행바
+            .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+            .setContentIntent(openAppPendingIntent(context))
+
+        // ✅ 진행바는 값이 있을 때만
+        if (progressPercent != null) {
+            val p = progressPercent.coerceIn(0, 100)
+            builder.setProgress(100, p, false)
+        }
+
+        return builder.build()
     }
 
     fun notifyOngoing(
@@ -80,11 +104,14 @@ object NotificationHelper {
             context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID_ALERT)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert) // ⭐️ 임시 아이콘 (나중에 앱 아이콘으로 변경)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle(title)
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(openAppPendingIntent(context)) // ✅ 추가
+            .setAutoCancel(true)                              // ✅ 추가(탭하면 알림 닫힘)
             .build()
+
 
         notificationManager.notify(idKey.hashCode(), notification)
 

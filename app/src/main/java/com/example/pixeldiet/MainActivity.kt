@@ -29,6 +29,7 @@ import com.google.firebase.auth.FirebaseAuth
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.example.pixeldiet.backup.DailyUploadWorker
 import com.example.pixeldiet.service.UsageTrackerService
+import com.example.pixeldiet.repository.NotificationPrefs
 
 
 class MainActivity : ComponentActivity() {
@@ -41,13 +42,18 @@ class MainActivity : ComponentActivity() {
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
-        if (isGranted) {
-            // ✅ 권한 허용됨 -> Foreground Service 시작
+    if (isGranted) {
+        val prefs = NotificationPrefs(this)
+        if (prefs.isNotificationServiceEnabled()) {
             startUsageTrackerService()
         } else {
-            // 권한 거부됨
+            Log.d("MainActivity", "Notification service disabled in settings -> not starting")
         }
+    } else {
+        // 권한 거부됨
     }
+}
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,11 +90,15 @@ class MainActivity : ComponentActivity() {
 
     // 알림 권한 확인 및 요청 함수
     private fun checkNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13 (API 33) 이상
-            // 런처를 통해 알림 권한 팝업을 띄움
+        val prefs = NotificationPrefs(this)
+        if (!prefs.isNotificationServiceEnabled()) {
+            Log.d("MainActivity", "Notification service disabled in settings -> skip start")
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            // Android 12 이하는 권한이 자동 허용
             startUsageTrackerService()
         }
     }

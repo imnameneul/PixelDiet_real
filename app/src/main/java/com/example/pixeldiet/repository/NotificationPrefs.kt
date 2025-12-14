@@ -14,6 +14,15 @@ import java.util.Locale
  */
 class NotificationPrefs(context: Context) {
 
+    private val KEY_NOTIFICATION_SERVICE_ENABLED = "notification_service_enabled"
+
+    fun isNotificationServiceEnabled(): Boolean =
+        prefs.getBoolean(KEY_NOTIFICATION_SERVICE_ENABLED, true) // 기본 ON
+
+    fun setNotificationServiceEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_NOTIFICATION_SERVICE_ENABLED, enabled).apply()
+    }
+
     private val prefs: SharedPreferences =
         context.getSharedPreferences("PixelDietPrefs", Context.MODE_PRIVATE)
 

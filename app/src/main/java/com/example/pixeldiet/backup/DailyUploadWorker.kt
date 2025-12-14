@@ -19,7 +19,7 @@ class DailyUploadWorker(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return Result.failure()
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return Result.success()
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN).format(Date())
 
         // Room/SharedPreferences에서 목표 시간 가져오기

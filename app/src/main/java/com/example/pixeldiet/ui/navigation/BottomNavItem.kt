@@ -14,7 +14,7 @@ sealed class BottomNavItem(
     val icon: ImageVector
 ) {
     object Main : BottomNavItem("main", "메인", Icons.Default.Home)
-    object Calendar : BottomNavItem("calendar", "캘린더", Icons.Default.CalendarMonth)
-    object Friends : BottomNavItem("friends", "친구", Icons.Default.Group)
+    object Calendar : BottomNavItem("calendar", "달력", Icons.Default.CalendarMonth)
+    object Friends : BottomNavItem("friends", "커뮤니티", Icons.Default.Group)
     object Settings : BottomNavItem("settings", "설정", Icons.Default.Settings)
 }
