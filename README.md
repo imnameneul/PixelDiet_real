@@ -54,7 +54,7 @@
 - 다른 앱에서 가져왔을때 폰에 없는 앱: com.instagram.android로 뜨는 문제
 - viewmdoel 초기화 버전에서 건우님 loginActivity 버전으로 바꿔서도 확인해보기
 
-
+- 거품 뷰 vs 원형 그래프 비교해서 선택
 
 
 
