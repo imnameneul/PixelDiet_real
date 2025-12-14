@@ -29,7 +29,9 @@
 > SharedViewModel에서 앱 사용시간으로 'Firestore(today) + UsageStats(realtime)' 기반으로 계산하는거 없애고  'UsageStats(realtime)'기반 사용시간으로 계산하게 수정(UsageRepository)
 
 ⭐SyncRepository.kt 수정
+
 ⭐SharedViewModel.kt 수정
+
 ⭐UsageCheckWorkger.kt 수정
 
 - 주요 수정: SharedViewModel.kt 에 있던 firebase에 오늘 사용시간을 가져와 앱 사용시간에 합산하던 계산 삭제하고 UsageRepositry.kt(수정X)에 있던 계산 로직 그대로 가져다 씀.
