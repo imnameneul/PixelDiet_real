@@ -25,6 +25,15 @@ private var lastShownPkg: String? = null
 private var lastShownTitle: String? = null
 private var lastShownText: String? = null
 
+private var lastTrackedPkg: String? = null
+private var lastTrackedAtMs: Long = 0L
+private const val TRACKED_GRACE_MS = 10_000L // 알림 패널/잠깐 전환 버퍼(10초)
+private val IGNORED_FOREGROUND_PKGS = setOf(
+    "com.android.systemui",
+    "com.google.android.gms"
+    // 필요하면 런처도 추가: "com.sec.android.app.launcher" 등
+)
+
 class UsageTrackerService : Service() {
 
     companion object {
@@ -188,15 +197,29 @@ class UsageTrackerService : Service() {
         val targetApps = all.filter { it.packageName in trackedSet }
 
         // 4) 상시 알림(진행바) 업데이트:
-    // - 추적앱 사용 중이면: 해당 앱 사용시간 + 해당 앱 진행바
-    // - 미사용이면: 격려 멘트 + 총 사용시간(작게), 진행바는 숨김(null)
-        /*
-        val foregroundPkg = getTopForegroundPackage()
+        // - 추적앱 사용 중이면: 해당 앱 사용시간 + 해당 앱 진행바
+        // - 미사용이면: 격려 멘트 + 총 사용시간(작게), 진행바는 숨김(null)
+
+        // 이벤트 기반(더 정확) 먼저 시도, 없으면 usageStats fallback
+        val rawPkg = getForegroundPackageName(windowMs = 30_000L) ?: getTopForegroundPackage(windowMs = 30_000L)
+
+        // SystemUI 같은 잡패키지면 "최근 추적앱" 유지
+        val now = System.currentTimeMillis()
+        val foregroundPkg = when {
+            rawPkg == null -> lastTrackedPkg
+            rawPkg in IGNORED_FOREGROUND_PKGS -> {
+                if (now - lastTrackedAtMs <= TRACKED_GRACE_MS) lastTrackedPkg else rawPkg
+            }
+            else -> rawPkg
+        }
+
         Log.d("UsageTrackerService", "foregroundPkg=$foregroundPkg, isTracked=${foregroundPkg in trackedSet}")
         val totalUsage = targetApps.sumOf { it.currentUsage } // ✅ 멘트 모드에서만 표시할 총 사용시간
 
         val (title, text, progressPercent) =
             if (foregroundPkg != null && foregroundPkg in trackedSet) {
+                lastTrackedPkg = foregroundPkg
+                lastTrackedAtMs = now
                 val app = targetApps.firstOrNull { it.packageName == foregroundPkg }
 
                 if (app != null) {
@@ -242,7 +265,7 @@ class UsageTrackerService : Service() {
                 progressPercent = progressPercent
             )
         )
-        */
+
 
         // 5) 개별 앱 경고 알림 체크(50/70/100)
         val settings = UsageRepository.notificationSettingsFlow.value ?: NotificationSettings()

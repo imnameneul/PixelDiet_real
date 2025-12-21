@@ -36,7 +36,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppNavigation(sharedViewModel: SharedViewModel = viewModel()) {
+fun AppNavigation(sharedViewModel: SharedViewModel) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val db = DatabaseProvider.getDatabase(context)
@@ -131,7 +131,7 @@ fun AppNavigation(sharedViewModel: SharedViewModel = viewModel()) {
             }
 
             composable(BottomNavItem.Settings.route) {
-                SettingsScreen()
+                SettingsScreen(viewModel = sharedViewModel)
             }
 
             composable("app_selection") {

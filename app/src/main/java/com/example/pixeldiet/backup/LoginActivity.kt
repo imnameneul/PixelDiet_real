@@ -36,6 +36,15 @@ class LoginActivity : AppCompatActivity() {
                             // 1) Firebase 로그인
                             backupManager.signInWithGoogle(idToken)
 
+                            // ✅ 구글 로그인 직후 프로필(친구코드) 보장 생성/로드
+                            val uid = FirebaseAuth.getInstance().currentUser?.uid
+                            val name = FirebaseAuth.getInstance().currentUser?.displayName
+                            if (uid != null) {
+                                com.example.pixeldiet.repository.SyncRepository(applicationContext)
+                                    .initUserProfileIfNeeded(uid, name)
+                            }
+
+
                             // 2) Firebase uid 저장 (account.id 쓰지 말고 이걸 쓰는 게 맞음)
                             val firebaseUid = FirebaseAuth.getInstance().currentUser?.uid
                             if (firebaseUid == null) {

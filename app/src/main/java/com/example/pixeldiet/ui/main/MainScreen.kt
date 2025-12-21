@@ -69,25 +69,16 @@ fun MainScreen(
     val context = LocalContext.current
     val pm = context.packageManager
 
-    val displayAppList = trackedPackagesWithGoals.map { tracked ->
-        val usage = appList.find { it.packageName == tracked.packageName }
-        if (usage != null) {
-            usage.copy(goalTime = tracked.goalTime)
-        } else {
-            val appInfo = try { pm.getApplicationInfo(tracked.packageName, 0) } catch (e: Exception) { null }
-            val label = appInfo?.let { pm.getApplicationLabel(it).toString() } ?: tracked.packageName
-            val icon = appInfo?.let { try { pm.getApplicationIcon(it) } catch(e: Exception){ null } }
-            AppUsage(
-                packageName = tracked.packageName,
-                appLabel = label,
-                icon = icon,
-                currentUsage = 0,
-                goalTime = tracked.goalTime,
-                streak = 0
-            )
-        }
+// goalTime만 trackedAppsFlow에서 주입하고, 나머지(usage, streak)는 VM 결과(appList) 그대로 씀
+    val goalMap = remember(trackedPackagesWithGoals) {
+        trackedPackagesWithGoals.associate { it.packageName to it.goalTime }
     }
 
+    val displayAppList = remember(appList, goalMap) {
+        appList.map { app ->
+            app.copy(goalTime = goalMap[app.packageName] ?: app.goalTime)
+        }
+    }
 
     // ------------------- 정렬 토글(버튼 1개로 순환) -------------------
     var sortMode by rememberSaveable { mutableStateOf(SortMode.USAGE_DESC) }

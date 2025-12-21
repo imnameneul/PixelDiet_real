@@ -62,38 +62,6 @@ fun AppUsageCard(appUsage: AppUsage) {
                     modifier = Modifier.weight(1f)
                 )
 
-                // 스트릭
-                if (appUsage.streak != 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = if (appUsage.streak > 0)
-                                Icons.Filled.LocalFireDepartment
-                            else
-                                Icons.Filled.BrokenImage,
-                            contentDescription = "Streak",
-                            tint = if (appUsage.streak > 0)
-                                Color(0xFFFF4500)
-                            else
-                                Color.Gray,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = "${kotlin.math.abs(appUsage.streak)}",
-                            fontSize = 16.sp
-                        )
-                    }
-                } else {
-                    // ⭐⭐⭐ 0일때 띄우는 용 ⭐⭐⭐
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.LocalFireDepartment,
-                            contentDescription = "Streak",
-                            tint =  Color.Gray,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))

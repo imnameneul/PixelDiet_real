@@ -54,7 +54,7 @@ import com.example.pixeldiet.repository.NotificationPrefs
 
 
 @Composable
-fun SettingsScreen(viewModel: SharedViewModel = viewModel()) {
+fun SettingsScreen(viewModel: SharedViewModel) {
     val context = LocalContext.current
     val activity = context as? Activity
     val coroutineScope = rememberCoroutineScope()
@@ -142,7 +142,7 @@ fun SettingsScreen(viewModel: SharedViewModel = viewModel()) {
                             Text(displayName, fontSize = 18.sp)
                             Spacer(Modifier.width(8.dp))
                             TextButton(onClick = { /* 닉네임 변경 */ }) {
-                                Text("닉네임 변경")
+                                //Text("닉네임 변경")
                             }
                         }
 
@@ -159,7 +159,7 @@ fun SettingsScreen(viewModel: SharedViewModel = viewModel()) {
                                 color = Color.Black
                             )
                         } ?: Text(
-                            text = "계정을 연동해서 친구를 추가해보세요",
+                            text = "로그인하여 친구를 추가해보세요!",
                             fontSize = 14.sp,
                             color = Color.Gray
                         )

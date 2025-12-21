@@ -24,6 +24,8 @@ import com.github.mikephil.charting.charts.CombinedChart
 import com.github.mikephil.charting.data.CombinedData
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
+import com.github.mikephil.charting.formatter.ValueFormatter
+
 
 
 // ----------------------
@@ -104,6 +106,12 @@ fun WrappedBarChart(
                 xAxis.setDrawGridLines(false)
                 axisLeft.setDrawGridLines(true)
                 legend.isEnabled = true     // ✅ 범례 켜기
+                axisLeft.valueFormatter = object : ValueFormatter() {
+                    override fun getFormattedValue(value: Float): String {
+                        val hours = value / 60f
+                        return String.format("%.1f시간", hours) // 1.5시간 같은 형태
+                    }
+                }
             }
         },
         update = { chart ->
@@ -111,6 +119,12 @@ fun WrappedBarChart(
             val barEntries = chartData.map { BarEntry(it.x, it.y) }
             val barDataSet = BarDataSet(barEntries, "사용 시간").apply {
                 valueTextSize = 10f
+            }
+            barDataSet.valueFormatter = object : ValueFormatter() {
+                override fun getBarLabel(barEntry: BarEntry): String {
+                    val hours = barEntry.y / 60f
+                    return String.format("%.1f", hours) // 막대 위에 1.5 이런 식
+                }
             }
             val barData = BarData(barDataSet).apply { barWidth = 0.6f }
 

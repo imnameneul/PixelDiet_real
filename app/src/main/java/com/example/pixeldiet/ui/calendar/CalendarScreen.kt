@@ -39,17 +39,26 @@ fun CalendarScreen(viewModel: SharedViewModel = viewModel()) {
     val goalMinutes by viewModel.calendarGoalTimeFlow.collectAsState(initial = 0)
     val appList by viewModel.appUsageListFlow.collectAsState(initial = emptyList())
     val trackedPackages by viewModel.trackedPackagesFlow.collectAsState(initial = emptySet())
-    val selectedFilterLabel by viewModel.selectedFilterTextFlow.collectAsState(initial = "전체")
+    val selectedFilterLabel by viewModel.selectedFilterTextFlow.collectAsState(initial = "선택")
     val context = LocalContext.current
     var selectedDate by remember { mutableStateOf<CalendarDay?>(null) }
     var showDailyDetail by remember { mutableStateOf(false) }
     val dailyDetail by viewModel.dailyDetailFlow.collectAsState(initial = emptyList())
     val goalSeries by viewModel.chartGoalDataFlow.collectAsState(initial = emptyList())
 
-    LaunchedEffect(Unit) {
-        val today = CalendarDay.today()
-        viewModel.setSelectedMonth(today.year, today.month)
+    LaunchedEffect(appList, trackedPackages) {
+        // 추적앱 목록(라벨순 정렬)에서 첫 앱 선택
+        val firstTrackedPkg = appList
+            .filter { it.packageName in trackedPackages }
+            .sortedBy { it.appLabel.lowercase() }
+            .firstOrNull()
+            ?.packageName
+
+        if (firstTrackedPkg != null) {
+            viewModel.setCalendarFilter(firstTrackedPkg)
+        }
     }
+
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -161,10 +170,8 @@ fun FilterSpinner(
     }
 
     val options: List<Pair<String?, String>> = remember(trackedApps) {
-        buildList {
-            add(null to "전체")
-            trackedApps.forEach { app -> add(app.packageName to app.appLabel) }
-        }
+        trackedApps.map { it.packageName to it.appLabel }
+
     }
 
     var expanded by remember { mutableStateOf(false) }

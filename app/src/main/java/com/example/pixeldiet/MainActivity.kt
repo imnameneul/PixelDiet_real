@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             PixelDietTheme {
-                AppNavigation()
+                AppNavigation(sharedViewModel = viewModel) // ✅ Activity VM 전달
             }
         }
         ProcessLifecycleOwner.get().lifecycle.addObserver(AppLifecycleObserver())
